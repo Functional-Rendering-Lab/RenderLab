@@ -1,0 +1,48 @@
+# Quality-of-Life Strategy
+
+## Why QoL Before Papers
+
+The PRD's success metric is: *"time from paper PDF open to first incorrect pixels on screen is under one evening session."* That timer doesn't start when you write the first shader — it starts when you need to orbit around the mesh to check a normal map, or drag a slider to find the right SSAO radius, or visualize the depth buffer to confirm your inputs are sane.
+
+Without these tools, every paper implementation degrades into a printf-debugging loop: change a constant, recompile, squint at the result, repeat. The papers themselves are the hard part — the tooling around them should be invisible.
+
+## Platform Strategy
+
+**Desktop is the primary development target.** Android is a proof-of-concept until XR papers begin.
+
+Rationale:
+
+- The goal of non-XR papers is learning rendering fundamentals. That is a desktop workflow: edit code, tweak parameters, inspect buffers, compare against reference images.
+- Interactive tooling (orbit camera, debug menus, buffer visualization) is inherently desktop — it depends on mouse and keyboard. Android would require a completely separate touch input layer with no shared code.
+- The PRD's G4 goal ("same paper code runs on both platforms") applies to *paper code*, not tooling. The architecture already supports this: `Camera` and all pure types live in `RenderLab.Scene` (shared), while input and debug menus live in `RenderLab.Platform.Desktop` and `RenderLab.Debug`. Android's composition root wires a fixed camera. No `#ifdef`s needed.
+- When XR papers begin, Android gets its own input controller (head tracking / controller stick) wired through the same `CameraInput` / `OrbitState` abstractions. Same pattern, different input source.
+
+## What Was Added
+
+### Scene Navigation
+Orbit camera controller with mouse-driven rotation, pan, and zoom. The controller is a pure function (`OrbitState × CameraInput → OrbitState`) in `RenderLab.Scene`. Input polling lives in `RenderLab.Platform.Desktop`. ImGui gets input priority via `io.WantCaptureMouse` — debug panel interactions never leak into camera movement.
+
+### Two-Way Debug Menus
+`DebugFields` (in `RenderLab.Debug`) bridges ImGui's `ref`-based API to a functional return-value style. Each helper takes an immutable value, shows a widget, returns the potentially modified value. Debug menus compose these into per-domain panels that follow the pattern `State → State`. The camera panel (`OrbitCameraDebugMenu`) and visualization selector (`VisualizationDebugMenu`) are the first two.
+
+Adding a new debug panel for a paper is one static method:
+```csharp
+public static SsaoParams Draw(SsaoParams p) =>
+    p with {
+        Radius = DebugFields.DragFloat("Radius", p.Radius, 0.01f, 0.01f, 5f),
+        Bias   = DebugFields.DragFloat("Bias", p.Bias, 0.001f, 0f, 0.5f),
+        Samples = DebugFields.SliderInt("Samples", p.Samples, 4, 64),
+    };
+```
+
+### Buffer Visualization
+Combo box to display any intermediate render target fullscreen: GBuffer position, normals, albedo, depth (log-scaled), or HDR pre-tonemap. Uses a dedicated `debugviz.frag` shader with a push-constant mode selector. The depth buffer is stored (`StoreOp.Store`) and transitioned to `DepthStencilReadOnlyOptimal` for sampling — this is also required by SSAO.
+
+## Future QoL
+
+Additional tooling will be added as papers demand it, not speculatively:
+
+- **Shader hot-reload** — when iteration on a single shader dominates the feedback loop.
+- **Screenshot / reference comparison** — when validating output against paper figures.
+- **Keyboard shortcuts** — when switching between visualization modes or resetting camera becomes frequent enough to warrant hotkeys.
+- **Per-pass toggle** — when a paper has enough passes that disabling individual ones aids debugging.

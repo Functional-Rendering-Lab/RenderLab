@@ -1,0 +1,29 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RenderLab.Gpu\RenderLab.Gpu.csproj" />
+    <ProjectReference Include="..\RenderLab.Graph\RenderLab.Graph.csproj" />
+    <ProjectReference Include="..\RenderLab.Platform.Desktop\RenderLab.Platform.Desktop.csproj" />
+    <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
+    <ProjectReference Include="..\RenderLab.Scene\RenderLab.Scene.csproj" />
+    <ProjectReference Include="..\RenderLab.Debug\RenderLab.Debug.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\RenderLab.Shaders\*.spv" CopyToOutputDirectory="PreserveNewest" Link="shaders\%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\..\assets\**\*" CopyToOutputDirectory="PreserveNewest" Link="assets\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>

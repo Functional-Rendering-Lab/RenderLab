@@ -1,0 +1,35 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dotnet:*)",
+      "Bash(where glslc.exe)",
+      "Bash(where glslangValidator.exe)",
+      "Bash(where dxc.exe)",
+      "Read(//c//**)",
+      "Bash(command -v scoop)",
+      "Bash(winget --version)",
+      "Bash(npm --version)",
+      "Bash(python compile_shaders.py)",
+      "Bash(ls:*)",
+      "Bash(reg query:*)",
+      "Bash(dotnet sln add:*)",
+      "Bash(C:/VulkanSDK/1.4.341.1/Bin/glslc.exe fullscreen.vert -o fullscreen.vert.spv)",
+      "Bash(C:/VulkanSDK/1.4.341.1/Bin/glslc.exe postprocess.frag -o postprocess.frag.spv)",
+      "Bash(mkdir:*)",
+      "Bash(\"C:/VulkanSDK/1.4.341.1/Bin/glslc.exe\" gbuffer.vert -o gbuffer.vert.spv)",
+      "Bash(\"C:/VulkanSDK/1.4.341.1/Bin/glslc.exe\" gbuffer.frag -o gbuffer.frag.spv)",
+      "Bash(\"C:/VulkanSDK/1.4.341.1/Bin/glslc.exe\" lighting.frag -o lighting.frag.spv)",
+      "Bash(\"C:/VulkanSDK/1.4.341.1/Bin/glslc.exe\" tonemap.frag -o tonemap.frag.spv)",
+      "Bash(\"C:/VulkanSDK/1.4.341.1/Bin/glslc.exe\" imgui.vert -o imgui.vert.spv)",
+      "Bash(\"C:/VulkanSDK/1.4.341.1/Bin/glslc.exe\" imgui.frag -o imgui.frag.spv)",
+      "Bash(echo \"EXIT: $?\")",
+      "mcp__serena__get_symbols_overview",
+      "Bash(wc -l /d/FunctionalRenderingLab/src/*/*.cs)",
+      "mcp__serena__activate_project",
+      "Bash(wc:*)",
+      "mcp__serena__list_dir",
+      "Bash(grep:*)",
+      "Bash(/c/VulkanSDK/1.4.341.1/Bin/glslc.exe:*)"
+    ]
+  }
+}
