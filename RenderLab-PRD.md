@@ -273,16 +273,20 @@ RenderLab.sln
 **Validates:** Graph compilation, barrier insertion, transient resource creation, multi-pass command sequencing.
 
 ### M3 — Deferred Baseline
-**Deliverable:** GBuffer pass (position, normal, albedo) → lighting pass → tonemap. Loaded OBJ mesh. Debug ImGui overlay showing GPU timings.
+**Deliverable:** GBuffer pass (position, normal, albedo) → lighting pass → tonemap. Loaded OBJ mesh. Debug ImGui overlay showing GPU timings. Lighting pass is a scaffold — a constant ambient term is enough to validate the plumbing.
 **Validates:** Multiple color attachments, descriptor sets, push constants, compute or fullscreen-quad lighting, ImGui integration.
 
-### M4 — First Paper
-**Deliverable:** Implement one concrete paper (candidate: SSAO — Horizon-Based Ambient Occlusion, Bavoil & Sainz 2008). Compare output against reference images from the paper.
-**Validates:** The full workflow. A paper author adds a file, writes pure functions, sees results.
+### M4 — Android Port
+**Deliverable:** M3 (deferred baseline) running on an Android device.
+**Validates:** Surface creation, mobile Vulkan path, `DeviceCapabilities` gating, APK packaging. NativeAOT from Windows is blocked today (see `docs/ARCHITECTURE-ANDROID.md`); Mono is the current runtime, NativeAOT is a follow-up.
 
-### M5 — Android Port
-**Deliverable:** M3 (deferred baseline) running on an Android device via NativeAOT.
-**Validates:** Surface creation, mobile Vulkan path, DeviceCapabilities gating, APK packaging.
+### M5 — Basic Lighting
+**Deliverable:** A fully lit scene in the deferred lighting pass. Sequenced to match the Lighting block of the blog roadmap: Phong/Blinn-Phong surface response, multiple point lights with attenuation and light volumes, then directional lights plus hemispheric ambient. Each step produces a rendered output and a companion blog post.
+**Validates:** The lighting pass as a composition surface — per-light accumulation, material parameters via push constants or SSBOs, and the motivation gap that makes SSAO worth implementing (flat ambient is visibly wrong).
+
+### M6 — First Paper: SSAO
+**Deliverable:** Implement one concrete paper from the SSAO block. Starting point: Crytek 2007 (Mittring) as the intuition-building baseline, progressing to HBAO (Bavoil & Sainz) and eventually GTAO (Jimenez et al.). Compare output against reference images from each paper.
+**Validates:** The full paper-first workflow. A paper author adds a file, writes pure functions, sees results. The ambient occlusion term plugs into the M5 lighting pass, closing the foundation → lighting → SSAO arc.
 
 ---
 
