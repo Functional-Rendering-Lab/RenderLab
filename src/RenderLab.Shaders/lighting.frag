@@ -13,10 +13,19 @@ layout(push_constant) uniform LightParams {
 layout(location = 0) in vec2 uv;
 layout(location = 0) out vec4 outColor;
 
+const float SHININESS_RANGE = 256.0;
+
 void main() {
+    vec4 normalSample = texture(gNormal, uv);
+    vec4 albedoSample = texture(gAlbedo, uv);
+
     vec3 fragPos = texture(gPosition, uv).rgb;
-    vec3 normal  = normalize(texture(gNormal, uv).rgb);
-    vec3 albedo  = texture(gAlbedo, uv).rgb;
+    vec3 normal  = normalize(normalSample.rgb);
+    vec3 albedo  = albedoSample.rgb;
+
+    // Material params packed into the GBuffer alpha channels by gbuffer.frag.
+    float specularStrength = normalSample.a;
+    float shininess = albedoSample.a * SHININESS_RANGE;
 
     // Ambient
     vec3 ambient = 0.05 * albedo;
@@ -29,8 +38,8 @@ void main() {
     // Specular (Blinn-Phong)
     vec3 viewDir = normalize(light.cameraPos.xyz - fragPos);
     vec3 halfDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfDir), 0.0), 32.0);
-    vec3 specular = spec * light.lightColor.rgb * light.lightColor.a * 0.5;
+    float spec = pow(max(dot(normal, halfDir), 0.0), max(shininess, 1.0));
+    vec3 specular = spec * light.lightColor.rgb * light.lightColor.a * specularStrength;
 
     // Attenuation
     float dist = length(light.lightPos.xyz - fragPos);

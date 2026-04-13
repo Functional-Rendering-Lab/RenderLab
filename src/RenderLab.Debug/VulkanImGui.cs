@@ -52,6 +52,7 @@ public sealed class VulkanImGui : IDisposable
 
         var io = ImGui.GetIO();
         io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset;
+        io.FontGlobalScale = 1.5f;
 
         imgui.CreateFontAtlas();
         imgui.CreateDescriptorResources();

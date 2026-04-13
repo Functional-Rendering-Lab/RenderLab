@@ -36,7 +36,8 @@ code/
     RenderLab.App               desktop composition root (wires everything)
     RenderLab.Gpu               Vulkan bindings, GpuState (impure kernel)
     RenderLab.Graph             pure render graph compiler
-    RenderLab.Scene             immutable scene data (Camera, Mesh, Vertex)
+    RenderLab.Scene             immutable scene data (Camera, Mesh, Vertex, PointLight, MaterialParams)
+    RenderLab.Papers            paper implementations (DeferredLighting)
     RenderLab.Functional        Optional, Result, Pipe
     RenderLab.Debug             ImGui overlay, GPU timestamps
     RenderLab.Shaders           GLSL / SPIR-V shaders
@@ -46,6 +47,10 @@ code/
     RenderLab.Functional.Tests
     RenderLab.Graph.Tests
 ```
+
+## Tooling
+
+**Use Serena MCP for all code reading and writing.** Prefer Serena's semantic tools (`get_symbols_overview`, `find_symbol`, `read_file`, `replace_symbol_body`, `insert_after_symbol`, etc.) over raw file reads and text edits. This gives symbol-aware navigation and safer refactoring. Fall back to standard tools only when Serena cannot handle the operation (e.g. non-code files, shell commands).
 
 ## Core rules
 

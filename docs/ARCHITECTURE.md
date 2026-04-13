@@ -7,11 +7,14 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 
 ```
 RenderLab.App              (desktop composition root — wires everything)
-  |-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state, DeviceCapabilities)
+  |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
+  |     |-> RenderLab.Scene      (Camera, Mesh, PointLight, MaterialParams — pure data)
+  |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
+  |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
   |     '-> RenderLab.Functional (Optional, Result, Pipe)
   |-> RenderLab.Graph
-  |-> RenderLab.Scene      (Camera, Mesh, Vertex — immutable data, no deps)
+  |-> RenderLab.Scene
   |-> RenderLab.Debug      (ImGui overlay, GPU timestamps -> depends on Gpu)
   '-> RenderLab.Platform.Desktop  (GLFW window — no internal deps)
 
@@ -34,33 +37,38 @@ Everything in `RenderLab.Gpu`, `RenderLab.Platform.Desktop`, and `RenderLab.Plat
 ## Per-Frame Data Flow
 
 ```
-Scene snapshot (Camera, mesh transforms)
+Scene snapshot (Camera, PointLight, mesh transforms)
   |
   v
-Pass declarations (Program.cs:136-154) .............. PURE
+Pass declarations (Program.cs) ...................... PURE
   Each pass declares resource I/O as RenderPassDeclaration
   |
   v
-RenderGraphCompiler.Compile() (Program.cs:156) ...... PURE
+RenderGraphCompiler.Compile() ...................... PURE
   Topological sort (Kahn's algorithm) + barrier insertion
   Output: ImmutableArray<ResolvedPass>
   |
   v
-VulkanGraphExecutor.Execute() (Program.cs:221) ...... IMPURE BOUNDARY
+VulkanGraphExecutor.Execute() ...................... IMPURE BOUNDARY
   Inserts Vulkan pipeline barriers from ResolvedPass.BarriersBefore
-  Calls per-pass recorder functions that record Vulkan commands
+  Calls per-pass recorder functions (e.g. DeferredLighting.Record)
   |
   v
-VulkanFrame.EndFrame() (Program.cs:226) ............. GPU SUBMISSION
+VulkanFrame.EndFrame() ............................. GPU SUBMISSION
   Queue submit + present
 ```
 
-### M3 Deferred Pipeline
+### Deferred Pipeline (M3 → M5)
 
 ```
 GBuffer pass        -> writes Position, Normal, Albedo (3 color attachments + depth)
+                       Alpha channels carry material: Normal.a = specularStrength,
+                       Albedo.a = shininess / 256
   |
 Lighting pass       -> reads GBuffer textures via descriptor set, writes HDR image
+                       Blinn-Phong: ambient + Lambertian diffuse + specular.
+                       Material params unpacked from GBuffer alpha channels.
+                       Currently single PointLight via push constants.
   |
 Tonemap pass        -> reads HDR, writes to swapchain backbuffer
   |
@@ -79,6 +87,9 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `RenderCommand` | `Gpu/RenderCommand.cs` | Tagged union value type — zero heap allocation |
 | `Handle types` | `Gpu/Handles.cs` | Opaque typed indices with generation counters |
 | `VulkanGraphExecutor` | `Gpu/VulkanGraphExecutor.cs` | Translates resolved passes to Vulkan barriers + recordings |
+| `DeferredLighting` | `Papers/DeferredLighting.cs` | Blinn-Phong lighting pass — pure push-constant builder + Vulkan recorder |
+| `PointLight` | `Scene/PointLight.cs` | Immutable point light (position, color, intensity) |
+| `MaterialParams` | `Scene/MaterialParams.cs` | Blinn-Phong material (specular strength, shininess) — encoding matches GBuffer alpha |
 
 ## Build and Run
 
@@ -109,10 +120,12 @@ src/
   RenderLab.Gpu/               Vulkan device, swapchain, buffers, images,
                                pipelines, descriptors, graph executor,
                                DeviceCapabilities, PushConstants
-  RenderLab.Scene/             Camera, MeshData, Vertex3D, OBJ loader
+  RenderLab.Scene/             Camera, MeshData, Vertex3D, PointLight,
+                               MaterialParams, OBJ loader
   RenderLab.Platform.Desktop/  GLFW window wrapper (poll-based)
   RenderLab.Platform.Android/  Activity + SurfaceView, ANativeWindow JNI,
                                deferred pipeline (GBuffer→Lighting→Tonemap)
+  RenderLab.Papers/            Paper implementations (DeferredLighting)
   RenderLab.Debug/             ImGui integration, GPU timestamp queries
   RenderLab.Shaders/           GLSL sources + SPIR-V build script
   RenderLab.App/               Desktop composition root (Program.cs)

@@ -6,6 +6,7 @@ using Silk.NET.Vulkan;
 using RenderLab.Debug;
 using RenderLab.Gpu;
 using RenderLab.Graph;
+using RenderLab.Papers;
 using RenderLab.Platform.Desktop;
 using RenderLab.Scene;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -106,6 +107,12 @@ unsafe
 
 var orbitState = OrbitCameraController.CreateDefault();
 var camera = OrbitCameraController.ToCamera(orbitState, (float)WindowWidth / WindowHeight);
+
+// Single hardcoded point light. Multi-light support arrives in the next M5 step.
+var keyLight = new PointLight(
+    Position: new Vector3(2, 3, 2),
+    Color: new Vector3(1f, 0.95f, 0.9f),
+    Intensity: 5f);
 
 const float RotateSensitivity = 0.005f;
 const float PanSensitivity = 0.005f;
@@ -352,48 +359,20 @@ unsafe void RecordGBufferPass(Vk api, CommandBuffer cb)
     timestamps.EndPass(api, cb);
 }
 
-unsafe void RecordLightingPass(Vk api, CommandBuffer cb)
+void RecordLightingPass(Vk api, CommandBuffer cb)
 {
     timestamps.BeginPass(api, cb, "Lighting");
 
-    var clearValue = new ClearValue(new ClearColorValue(0, 0, 0, 1));
+    var resources = new LightingPassResources(
+        RenderPass: lightingRenderPass,
+        Framebuffer: lightingFramebuffer,
+        Pipeline: lightingPipeline,
+        PipelineLayout: lightingPipelineLayout,
+        GBufferDescriptorSet: gbufferDescSets[gpu.CurrentFrame],
+        Extent: gpu.SwapchainExtent);
 
-    var renderPassBegin = new RenderPassBeginInfo
-    {
-        SType = StructureType.RenderPassBeginInfo,
-        RenderPass = lightingRenderPass,
-        Framebuffer = lightingFramebuffer,
-        RenderArea = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent),
-        ClearValueCount = 1,
-        PClearValues = &clearValue,
-    };
-
-    api.CmdBeginRenderPass(cb, &renderPassBegin, SubpassContents.Inline);
-    api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, lightingPipeline);
-
-    var viewport = new Viewport(0, 0, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height, 0, 1);
-    api.CmdSetViewport(cb, 0, 1, &viewport);
-
-    var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
-    api.CmdSetScissor(cb, 0, 1, &scissor);
-
-    // Bind GBuffer textures
-    var ds = gbufferDescSets[gpu.CurrentFrame];
-    api.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, lightingPipelineLayout, 0, 1, &ds, 0, null);
-
-    // Push constants: light params
-    var lightPc = new LightingPushConstants
-    {
-        CameraPos = new Vector4(camera.Position, 1),
-        LightPos = new Vector4(2, 3, 2, 1),
-        LightColor = new Vector4(1, 0.95f, 0.9f, 5.0f), // warm white, intensity 5
-    };
-    api.CmdPushConstants(cb, lightingPipelineLayout, ShaderStageFlags.FragmentBit,
-        0, (uint)Marshal.SizeOf<LightingPushConstants>(), &lightPc);
-
-    api.CmdDraw(cb, 3, 1, 0, 0); // Fullscreen triangle
-
-    api.CmdEndRenderPass(cb);
+    var pc = DeferredLighting.BuildPushConstants(camera, keyLight);
+    DeferredLighting.Record(api, cb, resources, pc);
 
     timestamps.EndPass(api, cb);
 }
@@ -538,6 +517,8 @@ void RecordImGuiPass(Vk api, CommandBuffer cb, uint imageIndex, float dt)
 
     orbitState = OrbitCameraDebugMenu.Draw(orbitState);
     camera = OrbitCameraController.ToCamera(orbitState, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
+
+    keyLight = LightingDebugMenu.Draw(keyLight);
 
     RenderGraphDebugMenu.Draw(resolvedPasses);
 

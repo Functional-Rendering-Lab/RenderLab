@@ -69,4 +69,10 @@ public static class DebugFields
         ImGui.ColorEdit4(label, ref value);
         return value;
     }
+
+    public static Vector3 ColorEdit(string label, Vector3 value)
+    {
+        ImGui.ColorEdit3(label, ref value);
+        return value;
+    }
 }
