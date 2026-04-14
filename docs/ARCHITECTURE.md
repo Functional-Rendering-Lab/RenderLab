@@ -32,7 +32,7 @@ Everything in `RenderLab.Graph` and `RenderLab.Scene` is pure — no side effect
 
 Everything in `RenderLab.Gpu`, `RenderLab.Platform.Desktop`, and `RenderLab.Platform.Android` performs side effects. `GpuState` is the single mutable kernel, passed explicitly by reference — never global, never static. `DeviceCapabilities` is an immutable record on `GpuState`, queried once at device creation — papers read it instead of calling Vulkan directly.
 
-`Program.cs` (desktop) and `RenderLabActivity.cs` (Android) are composition roots that wire pure declarations to the impure shell.
+`Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale. `RenderLabActivity.cs` (Android) is the mobile composition root.
 
 ## Per-Frame Data Flow
 

@@ -13,6 +13,7 @@ Every architectural decision, platform port, failed approach, and design trade-o
 | `ARCHITECTURE.md` | Module graph, purity boundary, data flow, key abstractions, build commands |
 | `ARCHITECTURE-ANDROID.md` | Android porting journey: what was tried, what failed, why Mono, NativeAOT path forward |
 | `ADDING-A-PAPER.md` | How to add a new paper implementation |
+| `DEMO-ARCHITECTURE.md` | Why and how `RenderLab.App/Demos/` hosts one demo per blog article |
 | `DOCUMENTATION-RULES.md` | This file |
 
 ### What gets a document
