@@ -11,15 +11,20 @@ layout(location = 0) out vec4 outPosition;
 layout(location = 1) out vec4 outNormal;
 layout(location = 2) out vec4 outAlbedo;
 
-const float MATERIAL_SPEC_STRENGTH = 0.5;
-const float MATERIAL_SHININESS = 32.0;
+layout(push_constant) uniform PushConstants {
+    mat4 model;
+    mat4 viewProj;
+    float specularStrength;
+    float shininess;
+} pc;
+
 const float SHININESS_RANGE = 256.0;
 
 void main() {
     outPosition = vec4(worldPos, 1.0);
-    outNormal = vec4(normalize(worldNormal), MATERIAL_SPEC_STRENGTH);
+    outNormal = vec4(normalize(worldNormal), pc.specularStrength);
 
     float checker = mod(floor(uv.x * 4.0) + floor(uv.y * 4.0), 2.0);
     vec3 albedo = mix(vec3(0.8, 0.8, 0.8), vec3(0.3, 0.5, 0.8), checker);
-    outAlbedo = vec4(albedo, MATERIAL_SHININESS / SHININESS_RANGE);
+    outAlbedo = vec4(albedo, pc.shininess / SHININESS_RANGE);
 }

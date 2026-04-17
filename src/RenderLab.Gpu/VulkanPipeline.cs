@@ -693,7 +693,7 @@ public static class VulkanPipeline
 
                 var pushConstantRange = new PushConstantRange
                 {
-                    StageFlags = ShaderStageFlags.VertexBit,
+                    StageFlags = ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
                     Offset = 0,
                     Size = pushConstantSize,
                 };

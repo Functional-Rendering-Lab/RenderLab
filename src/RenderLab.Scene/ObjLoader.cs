@@ -128,6 +128,49 @@ public static class ObjLoader
         return new MeshData([.. verts], [.. idx]);
     }
 
+    /// <summary>Generates a UV sphere centered at origin with radius 1. Normals point outward.</summary>
+    public static MeshData CreateSphere(int stacks = 32, int slices = 32)
+    {
+        var verts = new List<Vertex3D>();
+        var idx = new List<uint>();
+
+        for (int i = 0; i <= stacks; i++)
+        {
+            float phi = MathF.PI * i / stacks;            // 0 (top) → π (bottom)
+            float sinPhi = MathF.Sin(phi);
+            float cosPhi = MathF.Cos(phi);
+            float v = (float)i / stacks;
+
+            for (int j = 0; j <= slices; j++)
+            {
+                float theta = 2f * MathF.PI * j / slices;  // 0 → 2π
+                float sinTheta = MathF.Sin(theta);
+                float cosTheta = MathF.Cos(theta);
+                float u = (float)j / slices;
+
+                var normal = new Vector3(sinPhi * cosTheta, cosPhi, sinPhi * sinTheta);
+                verts.Add(new Vertex3D(normal, normal, new Vector2(u, v)));
+            }
+        }
+
+        int ringSize = slices + 1;
+        for (int i = 0; i < stacks; i++)
+        {
+            for (int j = 0; j < slices; j++)
+            {
+                uint tl = (uint)(i * ringSize + j);
+                uint tr = tl + 1;
+                uint bl = (uint)((i + 1) * ringSize + j);
+                uint br = bl + 1;
+
+                idx.AddRange([tl, bl, tr]);
+                idx.AddRange([tr, bl, br]);
+            }
+        }
+
+        return new MeshData([.. verts], [.. idx]);
+    }
+
     private static float ParseFloat(string s) =>
         float.Parse(s, CultureInfo.InvariantCulture);
 }

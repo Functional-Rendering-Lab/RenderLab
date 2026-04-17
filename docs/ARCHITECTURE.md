@@ -96,9 +96,14 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 ```bash
 # Prerequisites: .NET 9 SDK, Vulkan SDK (for glslc)
 
-# Desktop
+# Desktop — runs the default demo (deferred)
 dotnet build src/RenderLab.App
 dotnet run --project src/RenderLab.App
+
+# Desktop — pick a specific demo (see docs/DEMO-ARCHITECTURE.md)
+dotnet run --project src/RenderLab.App -- triangle   # Post 2
+dotnet run --project src/RenderLab.App -- gbuffer    # Post 3
+dotnet run --project src/RenderLab.App -- deferred   # Post 4
 
 # Android (requires Android SDK + android workload)
 dotnet build src/RenderLab.Platform.Android -c Release

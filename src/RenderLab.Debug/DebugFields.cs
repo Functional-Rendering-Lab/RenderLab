@@ -18,9 +18,9 @@ public static class DebugFields
     }
 
     public static float SliderFloat(string label, float value, float min, float max,
-        string format = "%.3f")
+        string format = "%.3f", ImGuiSliderFlags flags = ImGuiSliderFlags.None)
     {
-        ImGui.SliderFloat(label, ref value, min, max, format);
+        ImGui.SliderFloat(label, ref value, min, max, format, flags);
         return value;
     }
 

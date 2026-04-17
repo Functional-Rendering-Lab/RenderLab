@@ -8,6 +8,8 @@ public struct GBufferPushConstants
 {
     public Matrix4x4 Model;
     public Matrix4x4 ViewProj;
+    public float SpecularStrength;
+    public float Shininess;
 }
 
 [StructLayout(LayoutKind.Sequential)]

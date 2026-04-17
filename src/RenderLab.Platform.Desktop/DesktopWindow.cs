@@ -51,10 +51,13 @@ public sealed class DesktopWindow : IPlatformWindow
     /// </summary>
     public static DesktopWindow Create(string title, int width, int height)
     {
+        var monitor = Silk.NET.Windowing.Monitor.GetMainMonitor(null);
+        var size = monitor?.VideoMode.Resolution ?? new Vector2D<int>(width, height);
+
         var options = WindowOptions.DefaultVulkan with
         {
             Title = title,
-            Size = new Vector2D<int>(width, height),
+            Size = size,
             IsVisible = true,
         };
 

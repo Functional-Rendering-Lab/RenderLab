@@ -36,11 +36,12 @@ public static class OrbitCameraController
     private const float MinPitch = -MathF.PI / 2f + 0.01f;
     private const float MaxPitch = MathF.PI / 2f - 0.01f;
 
+    // Aligned with the default key light at (2,3,2) so the spec highlight lands near the middle of the visible sphere.
     public static OrbitState CreateDefault() => new(
         Target: Vector3.Zero,
-        Distance: 3.0f,
-        Yaw: 0f,
-        Pitch: 0.3f,
+        Distance: 3.5f,
+        Yaw: MathF.PI / 4f,
+        Pitch: 0.55f,
         FovRadians: MathF.PI / 4f,
         NearPlane: 0.1f,
         FarPlane: 100f);

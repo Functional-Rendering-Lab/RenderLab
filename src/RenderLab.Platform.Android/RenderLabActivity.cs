@@ -400,8 +400,11 @@ public class RenderLabActivity : Activity, ISurfaceHolderCallback
                 {
                     Model = model,
                     ViewProj = camera.ViewProjectionMatrix,
+                    SpecularStrength = MaterialParams.Default.SpecularStrength,
+                    Shininess = MaterialParams.Default.Shininess,
                 };
-                api.CmdPushConstants(cb, gbufferPipelineLayout, ShaderStageFlags.VertexBit,
+                api.CmdPushConstants(cb, gbufferPipelineLayout,
+                    ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
                     0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
 
                 var vb = vertexBuffer;

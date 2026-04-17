@@ -47,6 +47,7 @@ public sealed class DeferredDemo : IDemo
     OrbitState orbitState;
     Camera camera = null!;
     PointLight keyLight = null!;
+    MaterialParams material = MaterialParams.Default;
     VisualizationMode vizMode = VisualizationMode.Final;
 
     // Transient resources (recreated on resize)
@@ -168,9 +169,7 @@ public sealed class DeferredDemo : IDemo
     void Init()
     {
         // ─── Load mesh ───────────────────────────────────────────────
-        var assetsDir = Path.Combine(AppContext.BaseDirectory, "assets");
-        var objPath = Path.Combine(assetsDir, "suzanne.obj");
-        var mesh = File.Exists(objPath) ? ObjLoader.Load(objPath) : ObjLoader.CreateCube();
+        var mesh = ObjLoader.CreateSphere();
         indexCount = (uint)mesh.Indices.Length;
 
         Console.WriteLine($"RenderLab M3 — Deferred Baseline");
@@ -331,8 +330,11 @@ public sealed class DeferredDemo : IDemo
         {
             Model = model,
             ViewProj = camera.ViewProjectionMatrix,
+            SpecularStrength = material.SpecularStrength,
+            Shininess = material.Shininess,
         };
-        api.CmdPushConstants(cb, gbufferPipelineLayout, ShaderStageFlags.VertexBit,
+        api.CmdPushConstants(cb, gbufferPipelineLayout,
+            ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
             0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
 
         var vb = vertexBuffer;
@@ -505,7 +507,7 @@ public sealed class DeferredDemo : IDemo
         orbitState = OrbitCameraDebugMenu.Draw(orbitState);
         camera = OrbitCameraController.ToCamera(orbitState, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
 
-        keyLight = LightingDebugMenu.Draw(keyLight);
+        (keyLight, material) = LightingDebugMenu.Draw(keyLight, material);
 
         RenderGraphDebugMenu.Draw(resolvedPasses);
 

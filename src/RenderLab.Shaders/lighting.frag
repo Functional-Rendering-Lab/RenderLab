@@ -35,10 +35,12 @@ void main() {
     float diff = max(dot(normal, lightDir), 0.0);
     vec3 diffuse = diff * albedo * light.lightColor.rgb * light.lightColor.a;
 
-    // Specular (Blinn-Phong)
+    // Specular (Blinn-Phong, normalized so peak brightness scales with shininess)
     vec3 viewDir = normalize(light.cameraPos.xyz - fragPos);
     vec3 halfDir = normalize(lightDir + viewDir);
-    float spec = pow(max(dot(normal, halfDir), 0.0), max(shininess, 1.0));
+    float shin = max(shininess, 1.0);
+    float norm = (shin + 8.0) / 8.0;
+    float spec = norm * pow(max(dot(normal, halfDir), 0.0), shin);
     vec3 specular = spec * light.lightColor.rgb * light.lightColor.a * specularStrength;
 
     // Attenuation
