@@ -19,7 +19,8 @@ The render graph compiler handles execution ordering and barrier insertion autom
 
 ### 1. Write your shaders
 
-Add `.vert` and `.frag` files to `src/RenderLab.Shaders/`.
+Add `.vert` and `.frag` files to `src/RenderLab.Shaders/<your-shader-name>/`
+(one folder per shader name — the compile script discovers them recursively).
 Compile them to SPIR-V:
 
 ```bash

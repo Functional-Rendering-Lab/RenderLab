@@ -32,11 +32,11 @@
 
   <!-- Bundle SPIR-V shaders as Android assets -->
   <ItemGroup>
-    <AndroidAsset Include="..\RenderLab.Shaders\gbuffer.vert.spv" Link="Assets\shaders\gbuffer.vert.spv" />
-    <AndroidAsset Include="..\RenderLab.Shaders\gbuffer.frag.spv" Link="Assets\shaders\gbuffer.frag.spv" />
-    <AndroidAsset Include="..\RenderLab.Shaders\fullscreen.vert.spv" Link="Assets\shaders\fullscreen.vert.spv" />
-    <AndroidAsset Include="..\RenderLab.Shaders\lighting.frag.spv" Link="Assets\shaders\lighting.frag.spv" />
-    <AndroidAsset Include="..\RenderLab.Shaders\tonemap.frag.spv" Link="Assets\shaders\tonemap.frag.spv" />
+    <AndroidAsset Include="..\RenderLab.Shaders\gbuffer\gbuffer.vert.spv" Link="Assets\shaders\gbuffer.vert.spv" />
+    <AndroidAsset Include="..\RenderLab.Shaders\gbuffer\gbuffer.frag.spv" Link="Assets\shaders\gbuffer.frag.spv" />
+    <AndroidAsset Include="..\RenderLab.Shaders\fullscreen\fullscreen.vert.spv" Link="Assets\shaders\fullscreen.vert.spv" />
+    <AndroidAsset Include="..\RenderLab.Shaders\lighting\lighting.frag.spv" Link="Assets\shaders\lighting.frag.spv" />
+    <AndroidAsset Include="..\RenderLab.Shaders\tonemap\tonemap.frag.spv" Link="Assets\shaders\tonemap.frag.spv" />
   </ItemGroup>
 
 </Project>

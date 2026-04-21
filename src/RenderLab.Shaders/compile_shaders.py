@@ -1,45 +1,50 @@
 """
-Generate SPIR-V binaries for RenderLab triangle shaders.
-Run: python compile_shaders.py
-Produces: triangle.vert.spv, triangle.frag.spv
+Compile all GLSL shaders under src/RenderLab.Shaders/ to SPIR-V.
 
-Uses glslc if available, otherwise generates SPIR-V directly.
+Discovers every `*.vert` and `*.frag` under this directory (recursively,
+one folder per shader) and writes `<name>.spv` next to each source.
+
+Run:  python compile_shaders.py
+
+Uses glslc when available. Falls back to a hand-rolled SPIR-V builder
+that only knows how to emit the `triangle` shader — useful in stripped
+environments where the Vulkan SDK is missing.
 """
-import struct, shutil, subprocess, sys, os
+import glob, os, shutil, struct, subprocess, sys
 
-SHADER_SOURCES = [
-    "triangle.vert", "triangle.frag",
-    "fullscreen.vert", "postprocess.frag",
-    "gbuffer.vert", "gbuffer.frag",
-    "lighting.frag", "tonemap.frag",
-    "imgui.vert", "imgui.frag",
-    "debugviz.frag",
-]
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-def try_glslc():
+
+def discover_sources():
+    """Return every .vert/.frag under SCRIPT_DIR, sorted for stable output."""
+    patterns = ("**/*.vert", "**/*.frag")
+    found = []
+    for pat in patterns:
+        found.extend(glob.glob(os.path.join(SCRIPT_DIR, pat), recursive=True))
+    return sorted(found)
+
+
+def try_glslc(sources):
     glslc = shutil.which("glslc")
     if not glslc:
         return False
     try:
-        script_dir = os.path.dirname(os.path.abspath(__file__))
-        for shader in SHADER_SOURCES:
-            src = os.path.join(script_dir, shader)
-            if not os.path.exists(src):
-                continue
-            dst = os.path.join(script_dir, shader + ".spv")
+        for src in sources:
+            dst = src + ".spv"
             subprocess.run([glslc, src, "-o", dst], check=True)
-            print(f"  glslc: {shader} -> {shader}.spv")
+            rel = os.path.relpath(src, SCRIPT_DIR).replace(os.sep, "/")
+            print(f"  glslc: {rel} -> {rel}.spv")
         return True
     except Exception as e:
         print(f"  glslc failed: {e}, falling back to manual SPIR-V generation")
         return False
 
-# ── SPIR-V binary builder ────────────────────────────────────────────
+
+# ── SPIR-V binary builder (triangle-only fallback) ───────────────────
 
 MAGIC = 0x07230203
 VERSION = 0x00010000  # SPIR-V 1.0
 
-# Opcodes
 OpCapability = 17; OpMemoryModel = 14; OpEntryPoint = 15; OpExecutionMode = 16
 OpSource = 3; OpDecorate = 71; OpMemberDecorate = 72
 OpTypeVoid = 19; OpTypeFunction = 33; OpTypeFloat = 22; OpTypeVector = 23
@@ -48,7 +53,6 @@ OpVariable = 59; OpConstant = 43; OpFunction = 54; OpFunctionEnd = 56
 OpLabel = 248; OpLoad = 61; OpStore = 62; OpAccessChain = 65
 OpCompositeConstruct = 80; OpCompositeExtract = 81; OpReturn = 253
 
-# Enums
 CapShader = 1; MemLogical = 0; MemGLSL450 = 1
 ExecVertex = 0; ExecFragment = 4; ExecOriginUpperLeft = 7
 SCInput = 1; SCOutput = 3
@@ -79,10 +83,8 @@ class SpvBuilder:
         data = header + self.words
         return struct.pack(f'<{len(data)}I', *data)
 
-# ── Vertex shader ────────────────────────────────────────────────────
 
 def build_vert():
-    # IDs
     VOID=1; FN_VOID=2; FLOAT=3; V2F=4; V3F=5; V4F=6
     PV_STRUCT=7; P_OUT_PV=8; GL_POS_VAR=9; INT=10; INT_0=11
     P_OUT_V4=12; P_IN_V2=13; P_IN_V3=14; P_OUT_V3=15
@@ -96,14 +98,12 @@ def build_vert():
     b.entry_point(ExecVertex, MAIN, "main", IN_POS, IN_COLOR, GL_POS_VAR, OUT_COLOR)
     b.inst(OpSource, SrcGLSL, 450)
 
-    # Decorations
     b.inst(OpMemberDecorate, PV_STRUCT, 0, DecBuiltIn, BuiltInPosition)
     b.inst(OpDecorate, PV_STRUCT, DecBlock)
     b.inst(OpDecorate, IN_POS, DecLocation, 0)
     b.inst(OpDecorate, IN_COLOR, DecLocation, 1)
     b.inst(OpDecorate, OUT_COLOR, DecLocation, 0)
 
-    # Types
     b.inst(OpTypeVoid, VOID)
     b.inst(OpTypeFunction, FN_VOID, VOID)
     b.inst(OpTypeFloat, FLOAT, 32)
@@ -118,18 +118,15 @@ def build_vert():
     b.inst(OpTypePointer, P_IN_V3, SCInput, V3F)
     b.inst(OpTypePointer, P_OUT_V3, SCOutput, V3F)
 
-    # Variables
     b.inst(OpVariable, P_OUT_PV, GL_POS_VAR, SCOutput)
     b.inst(OpVariable, P_IN_V2, IN_POS, SCInput)
     b.inst(OpVariable, P_IN_V3, IN_COLOR, SCInput)
     b.inst(OpVariable, P_OUT_V3, OUT_COLOR, SCOutput)
 
-    # Constants
     b.inst(OpConstant, INT, INT_0, i32(0))
     b.inst(OpConstant, FLOAT, F0, f32(0.0))
     b.inst(OpConstant, FLOAT, F1, f32(1.0))
 
-    # Function
     b.inst(OpFunction, VOID, MAIN, FuncNone, FN_VOID)
     b.inst(OpLabel, LBL)
     b.inst(OpLoad, V2F, POS, IN_POS)
@@ -145,55 +142,8 @@ def build_vert():
 
     return b.build(BOUND)
 
-# ── Fragment shader ──────────────────────────────────────────────────
 
 def build_frag():
-    VOID=1; FN_VOID=2; FLOAT=3; V3F=4; V4F=5
-    P_IN_V3=6; P_OUT_V4=7; FRAG_COLOR=8; OUT_COLOR=9; F1=10
-    MAIN=11; LBL=12; COL=13; OUT_VEC=14
-    BOUND=15
-
-    b = SpvBuilder()
-    b.inst(OpCapability, CapShader)
-    b.inst(OpMemoryModel, MemLogical, MemGLSL450)
-    b.entry_point(ExecFragment, MAIN, "main", FRAG_COLOR, OUT_COLOR)
-    b.inst(OpExecutionMode, MAIN, ExecOriginUpperLeft)
-    b.inst(OpSource, SrcGLSL, 450)
-
-    b.inst(OpDecorate, FRAG_COLOR, DecLocation, 0)
-    b.inst(OpDecorate, OUT_COLOR, DecLocation, 0)
-
-    # Types
-    b.inst(OpTypeVoid, VOID)
-    b.inst(OpTypeFunction, FN_VOID, VOID)
-    b.inst(OpTypeFloat, FLOAT, 32)
-    b.inst(OpTypeVector, V3F, FLOAT, 3)
-    b.inst(OpTypeVector, V4F, FLOAT, 4)
-    b.inst(OpTypePointer, P_IN_V3, SCInput, V3F)
-    b.inst(OpTypePointer, P_OUT_V4, SCOutput, V4F)
-
-    # Variables
-    b.inst(OpVariable, P_IN_V3, FRAG_COLOR, SCInput)
-    b.inst(OpVariable, P_OUT_V4, OUT_COLOR, SCOutput)
-
-    # Constants
-    b.inst(OpConstant, FLOAT, F1, f32(1.0))
-
-    # Function
-    b.inst(OpFunction, VOID, MAIN, FuncNone, FN_VOID)
-    b.inst(OpLabel, LBL)
-    b.inst(OpLoad, V3F, COL, FRAG_COLOR)
-    b.inst(OpCompositeExtract, FLOAT, BOUND, COL, 0)  # r — use BOUND as temp, reassign
-
-    # Actually, for vec4(fragColor, 1.0) we need to extract components and construct
-    # Let me use proper IDs
-    # Oops, I ran out of pre-assigned IDs. Let me redo with more.
-    pass
-
-    # Redo with correct IDs
-    return None
-
-def build_frag_v2():
     VOID=1; FN_VOID=2; FLOAT=3; V3F=4; V4F=5
     P_IN_V3=6; P_OUT_V4=7; FRAG_COLOR=8; OUT_COLOR=9; F1=10
     MAIN=11; LBL=12; COL=13; CR=14; CG=15; CB=16; OUT_VEC=17
@@ -237,23 +187,26 @@ def build_frag_v2():
 
 
 if __name__ == "__main__":
-    script_dir = os.path.dirname(os.path.abspath(__file__))
-
-    if try_glslc():
-        print("Shaders compiled with glslc.")
+    sources = discover_sources()
+    if not sources:
+        print("No .vert/.frag sources found.")
         sys.exit(0)
 
-    print("  glslc not found, generating SPIR-V directly...")
+    if try_glslc(sources):
+        print(f"Compiled {len(sources)} shader(s) with glslc.")
+        sys.exit(0)
 
-    vert_path = os.path.join(script_dir, "triangle.vert.spv")
-    frag_path = os.path.join(script_dir, "triangle.frag.spv")
+    print("  glslc not found, generating triangle SPIR-V directly...")
+
+    vert_path = os.path.join(SCRIPT_DIR, "triangle", "triangle.vert.spv")
+    frag_path = os.path.join(SCRIPT_DIR, "triangle", "triangle.frag.spv")
 
     with open(vert_path, 'wb') as f:
         f.write(build_vert())
     print(f"  -> {vert_path}")
 
     with open(frag_path, 'wb') as f:
-        f.write(build_frag_v2())
+        f.write(build_frag())
     print(f"  -> {frag_path}")
 
-    print("Done.")
+    print("Note: fallback only emits triangle. Install the Vulkan SDK for the rest.")
