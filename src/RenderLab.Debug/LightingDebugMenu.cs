@@ -5,41 +5,50 @@ using RenderLab.Scene;
 namespace RenderLab.Debug;
 
 /// <summary>
-/// Two-way debug panel for <see cref="PointLight"/>.
-/// Call <see cref="Draw"/> each frame inside an ImGui context — it returns the (potentially edited) light.
+/// Two-way debug panel for <see cref="PointLight"/> and the deferred shading
+/// mode. Material parameters live in <see cref="SphereDebugMenu"/>. Call
+/// <see cref="Draw"/> each frame inside an ImGui context — it returns the
+/// (potentially edited) values.
 /// </summary>
 public static class LightingDebugMenu
 {
-    public static (PointLight light, MaterialParams material) Draw(PointLight light, MaterialParams material)
+    private static readonly string[] ShadingModeNames =
+    {
+        "Lambertian (diffuse only)",
+        "Phong (R·V)",
+        "Blinn-Phong (N·H)",
+    };
+
+    public static (PointLight light, ShadingMode mode, bool lightingOnly) Draw(
+        PointLight light, ShadingMode mode, bool lightingOnly)
     {
         ImGui.SetNextWindowPos(new Vector2(10, 440), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 260), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(320, 220), ImGuiCond.FirstUseEver);
 
         if (!ImGui.Begin("Lighting"))
         {
             ImGui.End();
-            return (light, material);
+            return (light, mode, lightingOnly);
         }
 
-        ImGui.Text("Deferred Blinn-Phong");
-        ImGui.Separator();
+        ImGui.SeparatorText("Shading");
+        int modeIndex = (int)mode;
+        ImGui.Combo("Model", ref modeIndex, ShadingModeNames, ShadingModeNames.Length);
+        var newMode = (ShadingMode)modeIndex;
 
+        var newLightingOnly = DebugFields.Checkbox("Lighting only (no albedo)", lightingOnly);
+
+        ImGui.SeparatorText("Light");
         var position = DebugFields.DragVector3("Position", light.Position, 0.05f);
         var color = DebugFields.ColorEdit("Color", light.Color);
         var intensity = DebugFields.DragFloat("Intensity", light.Intensity, 0.05f, 0f, 100f);
-
-        ImGui.Separator();
-        ImGui.Text("Material");
-
-        var specStrength = DebugFields.SliderFloat("Spec Strength", material.SpecularStrength, 0f, 1f);
-        var shininess = DebugFields.SliderFloat("Shininess", material.Shininess, 1f, MaterialParams.ShininessRange,
-            flags: ImGuiSliderFlags.Logarithmic);
 
         ImGui.End();
 
         return (
             light with { Position = position, Color = color, Intensity = intensity },
-            new MaterialParams(specStrength, shininess)
+            newMode,
+            newLightingOnly
         );
     }
 }

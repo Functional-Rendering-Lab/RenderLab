@@ -13,17 +13,17 @@ Without these tools, every paper implementation degrades into a printf-debugging
 Rationale:
 
 - The goal of non-XR papers is learning rendering fundamentals. That is a desktop workflow: edit code, tweak parameters, inspect buffers, compare against reference images.
-- Interactive tooling (orbit camera, debug menus, buffer visualization) is inherently desktop — it depends on mouse and keyboard. Android would require a completely separate touch input layer with no shared code.
+- Interactive tooling (free-fly camera, debug menus, buffer visualization) is inherently desktop — it depends on mouse and keyboard. Android would require a completely separate touch input layer with no shared code.
 - The PRD's G4 goal ("same paper code runs on both platforms") applies to *paper code*, not tooling. The architecture already supports this: `Camera` and all pure types live in `RenderLab.Scene` (shared), while input and debug menus live in `RenderLab.Platform.Desktop` and `RenderLab.Debug`. Android's composition root wires a fixed camera. No `#ifdef`s needed.
-- When XR papers begin, Android gets its own input controller (head tracking / controller stick) wired through the same `CameraInput` / `OrbitState` abstractions. Same pattern, different input source.
+- When XR papers begin, Android gets its own input controller (head tracking / controller stick) wired through the same `CameraInput` / `FreeCameraState` abstractions. Same pattern, different input source.
 
 ## What Was Added
 
 ### Scene Navigation
-Orbit camera controller with mouse-driven rotation, pan, and zoom. The controller is a pure function (`OrbitState × CameraInput → OrbitState`) in `RenderLab.Scene`. Input polling lives in `RenderLab.Platform.Desktop`. ImGui gets input priority via `io.WantCaptureMouse` — debug panel interactions never leak into camera movement.
+Free-fly camera controller with mouse-driven rotation and translation along the camera's local axes. The controller is a pure function (`FreeCameraState × CameraInput → FreeCameraState`) in `RenderLab.Scene`. Input polling lives in `RenderLab.Platform.Desktop`. ImGui gets input priority via `io.WantCaptureMouse` — debug panel interactions never leak into camera movement.
 
 ### Two-Way Debug Menus
-`DebugFields` (in `RenderLab.Debug`) bridges ImGui's `ref`-based API to a functional return-value style. Each helper takes an immutable value, shows a widget, returns the potentially modified value. Debug menus compose these into per-domain panels that follow the pattern `State → State`. The camera panel (`OrbitCameraDebugMenu`) and visualization selector (`VisualizationDebugMenu`) are the first two.
+`DebugFields` (in `RenderLab.Debug`) bridges ImGui's `ref`-based API to a functional return-value style. Each helper takes an immutable value, shows a widget, returns the potentially modified value. Debug menus compose these into per-domain panels that follow the pattern `State → State`. The camera panel (`FreeCameraDebugMenu`) and visualization selector (`VisualizationDebugMenu`) are the first two.
 
 Adding a new debug panel for a paper is one static method:
 ```csharp

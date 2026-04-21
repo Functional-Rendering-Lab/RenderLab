@@ -400,6 +400,7 @@ public class RenderLabActivity : Activity, ISurfaceHolderCallback
                 {
                     Model = model,
                     ViewProj = camera.ViewProjectionMatrix,
+                    Albedo = MaterialParams.Default.Albedo,
                     SpecularStrength = MaterialParams.Default.SpecularStrength,
                     Shininess = MaterialParams.Default.Shininess,
                 };

@@ -7,18 +7,22 @@ using RenderLab.Scene;
 namespace RenderLab.Papers;
 
 /// <summary>
-/// Deferred Blinn-Phong lighting pass. The pure half maps an immutable
-/// <see cref="Camera"/> + <see cref="PointLight"/> into the push-constant
-/// layout consumed by <c>lighting.frag</c>; the impure half records the
-/// fullscreen draw against a pre-built set of Vulkan resources.
+/// Deferred lighting pass with selectable shading model (Lambertian, Phong,
+/// Blinn-Phong). The pure half maps an immutable <see cref="Camera"/>,
+/// <see cref="PointLight"/>, and <see cref="ShadingMode"/> into the
+/// push-constant layout consumed by <c>lighting.frag</c>; the impure half
+/// records the fullscreen draw against a pre-built set of Vulkan resources.
 /// </summary>
 public static class DeferredLighting
 {
-    public static LightingPushConstants BuildPushConstants(Camera camera, PointLight light) => new()
+    public static LightingPushConstants BuildPushConstants(
+        Camera camera, PointLight light, ShadingMode mode, bool lightingOnly = false) => new()
     {
         CameraPos = new Vector4(camera.Position, 1f),
         LightPos = new Vector4(light.Position, 1f),
         LightColor = new Vector4(light.Color, light.Intensity),
+        ShadingMode = (int)mode,
+        LightingOnly = lightingOnly ? 1 : 0,
     };
 
     public static unsafe void Record(

@@ -645,7 +645,11 @@ public static class VulkanPipeline
                     PolygonMode = PolygonMode.Fill,
                     LineWidth = 1.0f,
                     CullMode = CullModeFlags.BackBit,
-                    FrontFace = FrontFace.CounterClockwise,
+                    // Projection matrix flips Y for Vulkan clip space, which
+                    // reverses triangle winding in screen space. Meshes
+                    // authored with CCW outward faces must be declared CW here
+                    // so the rasterizer culls the correct side.
+                    FrontFace = FrontFace.Clockwise,
                 };
 
                 var multisampling = new PipelineMultisampleStateCreateInfo

@@ -30,7 +30,7 @@ public sealed class GBufferDemo : IDemo
     const int WindowWidth = 1280;
     const int WindowHeight = 720;
     const float RotateSensitivity = 0.005f;
-    const float PanSensitivity = 0.005f;
+    const float PanSensitivity = 0.01f;
     const float ZoomSensitivity = 0.3f;
 
     // Valid visualization modes for this demo (no Final or HDR)
@@ -66,7 +66,7 @@ public sealed class GBufferDemo : IDemo
     DescriptorSetLayout singleDsLayout;
 
     // Camera
-    OrbitState orbitState;
+    FreeCameraState cameraState;
     Camera camera = null!;
     VisualizationMode vizMode = VisualizationMode.Position;
 
@@ -117,15 +117,14 @@ public sealed class GBufferDemo : IDemo
             {
                 var cameraInput = new CameraInput(
                     YawDelta: input.LeftButtonDown ? -input.MouseDelta.X * RotateSensitivity : 0,
-                    PitchDelta: input.LeftButtonDown ? input.MouseDelta.Y * RotateSensitivity : 0,
-                    ZoomDelta: input.ScrollDelta * ZoomSensitivity,
-                    PanDelta: input.MiddleButtonDown
-                        ? new Vector3(-input.MouseDelta.X * PanSensitivity * orbitState.Distance,
-                                      input.MouseDelta.Y * PanSensitivity * orbitState.Distance, 0)
-                        : Vector3.Zero);
+                    PitchDelta: input.LeftButtonDown ? -input.MouseDelta.Y * RotateSensitivity : 0,
+                    MoveDelta: new Vector3(
+                        input.MiddleButtonDown ? -input.MouseDelta.X * PanSensitivity : 0,
+                        input.MiddleButtonDown ?  input.MouseDelta.Y * PanSensitivity : 0,
+                        input.ScrollDelta * ZoomSensitivity));
 
-                orbitState = OrbitCameraController.Update(orbitState, cameraInput);
-                camera = OrbitCameraController.ToCamera(orbitState, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
+                cameraState = FreeCameraController.Update(cameraState, cameraInput);
+                camera = FreeCameraController.ToCamera(cameraState, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
             }
 
             io.MousePos = input.MousePosition;
@@ -214,8 +213,8 @@ public sealed class GBufferDemo : IDemo
         }
 
         // ─── Camera ──────────────────────────────────────────────────
-        orbitState = OrbitCameraController.CreateDefault();
-        camera = OrbitCameraController.ToCamera(orbitState, (float)WindowWidth / WindowHeight);
+        cameraState = FreeCameraController.CreateDefault();
+        camera = FreeCameraController.ToCamera(cameraState, (float)WindowWidth / WindowHeight);
 
         // ─── Transient resources ─────────────────────────────────────
         sampler = VulkanImage.CreateSampler(gpu);
@@ -263,6 +262,7 @@ public sealed class GBufferDemo : IDemo
         {
             Model = Matrix4x4.Identity,
             ViewProj = camera.ViewProjectionMatrix,
+            Albedo = MaterialParams.Default.Albedo,
             SpecularStrength = MaterialParams.Default.SpecularStrength,
             Shininess = MaterialParams.Default.Shininess,
         };
@@ -433,8 +433,8 @@ public sealed class GBufferDemo : IDemo
         ImGui.End();
 
         // Camera controls
-        orbitState = OrbitCameraDebugMenu.Draw(orbitState);
-        camera = OrbitCameraController.ToCamera(orbitState,
+        cameraState = FreeCameraDebugMenu.Draw(cameraState);
+        camera = FreeCameraController.ToCamera(cameraState,
             (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
 
         // Frame time
@@ -482,7 +482,7 @@ public sealed class GBufferDemo : IDemo
         debugVizDepthSets = VulkanDescriptors.AllocateSets(gpu, debugVizDescPool, singleDsLayout, frames, depthView, sampler,
             ImageLayout.DepthStencilReadOnlyOptimal);
 
-        camera = OrbitCameraController.ToCamera(orbitState, (float)w / h);
+        camera = FreeCameraController.ToCamera(cameraState, (float)w / h);
     }
 
     unsafe void DestroyTransientResources()

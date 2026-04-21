@@ -29,7 +29,10 @@
       "Bash(wc:*)",
       "mcp__serena__list_dir",
       "Bash(grep:*)",
-      "Bash(/c/VulkanSDK/1.4.341.1/Bin/glslc.exe:*)"
+      "Bash(/c/VulkanSDK/1.4.341.1/Bin/glslc.exe:*)",
+      "mcp__serena__search_for_pattern",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
     ]
   }
 }
