@@ -32,7 +32,13 @@
       "Bash(/c/VulkanSDK/1.4.341.1/Bin/glslc.exe:*)",
       "mcp__serena__search_for_pattern",
       "Bash(git add *)",
-      "Bash(git commit -m ' *)"
+      "Bash(git commit -m ' *)",
+      "Bash(git mv *)",
+      "Bash(rm -f *.spv)",
+      "WebSearch",
+      "Bash(curl -s \"https://api.github.com/repos/ab4d/VMA-CS\")",
+      "Bash(curl -s \"https://api-v2v3search-0.nuget.org/query?q=VulkanMemoryAllocator&take=10\")",
+      "Bash(git *)"
     ]
   }
 }

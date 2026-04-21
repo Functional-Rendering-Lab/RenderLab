@@ -32,6 +32,10 @@ public sealed class GpuState : IDisposable
     public required KhrSurface KhrSurface { get; init; }
     public required KhrSwapchain KhrSwapchain { get; init; }
 
+    // ─── Memory ─────────────────────────────────────────────────────
+    /// <summary>The single allocation surface. Every <c>vkAllocateMemory</c> flows through this.</summary>
+    public required Allocator Allocator { get; init; }
+
     // ─── Swapchain ──────────────────────────────────────────────────
     public SwapchainKHR Swapchain { get; set; }
     public Image[] SwapchainImages { get; set; } = [];

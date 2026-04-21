@@ -13,7 +13,7 @@ public sealed class VulkanImGui : IDisposable
 
     // Font atlas
     private Image _fontImage;
-    private DeviceMemory _fontMemory;
+    private Allocation _fontAlloc;
     private ImageView _fontView;
     private Sampler _fontSampler;
 
@@ -24,24 +24,30 @@ public sealed class VulkanImGui : IDisposable
     private PipelineLayout _pipelineLayout;
     private Pipeline _pipeline;
 
-    // Per-frame vertex/index buffers
-    private Buffer[] _vertexBuffers;
-    private DeviceMemory[] _vertexMemories;
-    private ulong[] _vertexBufferSizes;
-    private Buffer[] _indexBuffers;
-    private DeviceMemory[] _indexMemories;
-    private ulong[] _indexBufferSizes;
+    // Per-frame vertex/index buffers. Capacity grows in doubling steps so
+    // vkAllocateMemory is hit O(log N) at warm-up instead of every frame.
+    // Buffers stay mapped for the lifetime of this instance.
+    private readonly Buffer[] _vertexBuffers;
+    private readonly Allocation[] _vertexAllocs;
+    private readonly ulong[] _vertexCapacities;
+    private readonly IntPtr[] _vertexMapped;
+    private readonly Buffer[] _indexBuffers;
+    private readonly Allocation[] _indexAllocs;
+    private readonly ulong[] _indexCapacities;
+    private readonly IntPtr[] _indexMapped;
 
     private VulkanImGui(GpuState state)
     {
         _state = state;
         int frames = GpuState.MaxFramesInFlight;
         _vertexBuffers = new Buffer[frames];
-        _vertexMemories = new DeviceMemory[frames];
-        _vertexBufferSizes = new ulong[frames];
+        _vertexAllocs = new Allocation[frames];
+        _vertexCapacities = new ulong[frames];
+        _vertexMapped = new IntPtr[frames];
         _indexBuffers = new Buffer[frames];
-        _indexMemories = new DeviceMemory[frames];
-        _indexBufferSizes = new ulong[frames];
+        _indexAllocs = new Allocation[frames];
+        _indexCapacities = new ulong[frames];
+        _indexMapped = new IntPtr[frames];
     }
 
     public static unsafe VulkanImGui Create(GpuState state, RenderPass renderPass)
@@ -95,7 +101,7 @@ public sealed class VulkanImGui : IDisposable
         int frame = _state.CurrentFrame;
         UploadBuffers(drawData, frame);
 
-        if (_vertexBufferSizes[frame] > 0)
+        if (_vertexCapacities[frame] > 0)
         {
             var vb = _vertexBuffers[frame];
             ulong offset = 0;
@@ -156,43 +162,24 @@ public sealed class VulkanImGui : IDisposable
         vk.CmdEndRenderPass(cmd);
     }
 
+    // Grow per-frame buffers in doubling steps and keep them mapped for the
+    // lifetime of the instance. On warm-up vkAllocateMemory fires O(log N)
+    // times; steady state hits zero.
     private unsafe void UploadBuffers(ImDrawDataPtr drawData, int frame)
     {
-        var vk = _state.Vk;
         ulong vtxSize = (ulong)(drawData.TotalVtxCount * sizeof(ImDrawVert));
         ulong idxSize = (ulong)(drawData.TotalIdxCount * sizeof(ushort));
         if (vtxSize == 0 || idxSize == 0) return;
 
-        // Recreate buffers if too small
-        if (vtxSize > _vertexBufferSizes[frame])
-        {
-            if (_vertexBufferSizes[frame] > 0)
-            {
-                vk.DestroyBuffer(_state.Device, _vertexBuffers[frame], null);
-                vk.FreeMemory(_state.Device, _vertexMemories[frame], null);
-            }
-            (_vertexBuffers[frame], _vertexMemories[frame]) =
-                CreateBuffer(BufferUsageFlags.VertexBufferBit, vtxSize);
-            _vertexBufferSizes[frame] = vtxSize;
-        }
+        EnsureCapacity(ref _vertexBuffers[frame], ref _vertexAllocs[frame],
+            ref _vertexCapacities[frame], ref _vertexMapped[frame],
+            BufferUsageFlags.VertexBufferBit, vtxSize);
+        EnsureCapacity(ref _indexBuffers[frame], ref _indexAllocs[frame],
+            ref _indexCapacities[frame], ref _indexMapped[frame],
+            BufferUsageFlags.IndexBufferBit, idxSize);
 
-        if (idxSize > _indexBufferSizes[frame])
-        {
-            if (_indexBufferSizes[frame] > 0)
-            {
-                vk.DestroyBuffer(_state.Device, _indexBuffers[frame], null);
-                vk.FreeMemory(_state.Device, _indexMemories[frame], null);
-            }
-            (_indexBuffers[frame], _indexMemories[frame]) =
-                CreateBuffer(BufferUsageFlags.IndexBufferBit, idxSize);
-            _indexBufferSizes[frame] = idxSize;
-        }
-
-        // Map and copy
-        void* vtxDst;
-        vk.MapMemory(_state.Device, _vertexMemories[frame], 0, vtxSize, 0, &vtxDst);
-        void* idxDst;
-        vk.MapMemory(_state.Device, _indexMemories[frame], 0, idxSize, 0, &idxDst);
+        byte* vtxDst = (byte*)_vertexMapped[frame];
+        byte* idxDst = (byte*)_indexMapped[frame];
 
         for (int n = 0; n < drawData.CmdListsCount; n++)
         {
@@ -200,46 +187,43 @@ public sealed class VulkanImGui : IDisposable
 
             ulong vtxBytes = (ulong)(cmdList.VtxBuffer.Size * sizeof(ImDrawVert));
             System.Buffer.MemoryCopy((void*)cmdList.VtxBuffer.Data, vtxDst, (long)vtxBytes, (long)vtxBytes);
-            vtxDst = (byte*)vtxDst + vtxBytes;
+            vtxDst += vtxBytes;
 
             ulong idxBytes = (ulong)(cmdList.IdxBuffer.Size * sizeof(ushort));
             System.Buffer.MemoryCopy((void*)cmdList.IdxBuffer.Data, idxDst, (long)idxBytes, (long)idxBytes);
-            idxDst = (byte*)idxDst + idxBytes;
+            idxDst += idxBytes;
         }
-
-        vk.UnmapMemory(_state.Device, _vertexMemories[frame]);
-        vk.UnmapMemory(_state.Device, _indexMemories[frame]);
     }
 
-    private unsafe (Buffer buffer, DeviceMemory memory) CreateBuffer(BufferUsageFlags usage, ulong size)
+    private unsafe void EnsureCapacity(
+        ref Buffer buffer, ref Allocation alloc, ref ulong capacity, ref IntPtr mapped,
+        BufferUsageFlags usage, ulong needed)
     {
-        var vk = _state.Vk;
-        var bufferInfo = new BufferCreateInfo
+        if (needed <= capacity) return;
+
+        if (capacity > 0)
         {
-            SType = StructureType.BufferCreateInfo,
-            Size = size,
-            Usage = usage,
-            SharingMode = SharingMode.Exclusive,
-        };
+            _state.Allocator.Unmap(_state, alloc);
+            _state.Allocator.DestroyBuffer(_state, buffer, alloc);
+        }
 
-        if (vk.CreateBuffer(_state.Device, &bufferInfo, null, out var buffer) != Result.Success)
-            throw new InvalidOperationException("Failed to create ImGui buffer.");
+        ulong newCap = NextPow2(Math.Max(needed, capacity + 1));
+        (buffer, alloc) = _state.Allocator.AllocateBuffer(_state, newCap, usage, MemoryIntent.CpuToGpu);
+        mapped = (IntPtr)_state.Allocator.Map(_state, alloc);
+        capacity = newCap;
+    }
 
-        vk.GetBufferMemoryRequirements(_state.Device, buffer, out var memReqs);
-
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memReqs.Size,
-            MemoryTypeIndex = FindMemoryType(memReqs.MemoryTypeBits,
-                MemoryPropertyFlags.HostVisibleBit | MemoryPropertyFlags.HostCoherentBit),
-        };
-
-        if (vk.AllocateMemory(_state.Device, &allocInfo, null, out var memory) != Result.Success)
-            throw new InvalidOperationException("Failed to allocate ImGui buffer memory.");
-
-        vk.BindBufferMemory(_state.Device, buffer, memory, 0);
-        return (buffer, memory);
+    private static ulong NextPow2(ulong v)
+    {
+        if (v <= 1) return 1;
+        v--;
+        v |= v >> 1;
+        v |= v >> 2;
+        v |= v >> 4;
+        v |= v >> 8;
+        v |= v >> 16;
+        v |= v >> 32;
+        return v + 1;
     }
 
     private unsafe void CreateFontAtlas()
@@ -249,7 +233,7 @@ public sealed class VulkanImGui : IDisposable
         io.Fonts.GetTexDataAsRGBA32(out nint pixels, out int width, out int height, out int bytesPerPixel);
         ulong uploadSize = (ulong)(width * height * bytesPerPixel);
 
-        // Create font image
+        // Create font image via the central allocator
         var imageInfo = new ImageCreateInfo
         {
             SType = StructureType.ImageCreateInfo,
@@ -265,29 +249,15 @@ public sealed class VulkanImGui : IDisposable
             InitialLayout = ImageLayout.Undefined,
         };
 
-        if (vk.CreateImage(_state.Device, &imageInfo, null, out _fontImage) != Result.Success)
-            throw new InvalidOperationException("Failed to create ImGui font image.");
+        (_fontImage, _fontAlloc) = _state.Allocator.AllocateImage(_state, in imageInfo, MemoryIntent.GpuOnly);
 
-        vk.GetImageMemoryRequirements(_state.Device, _fontImage, out var memReqs);
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memReqs.Size,
-            MemoryTypeIndex = FindMemoryType(memReqs.MemoryTypeBits, MemoryPropertyFlags.DeviceLocalBit),
-        };
+        // Staging buffer
+        var (stagingBuffer, stagingAlloc) = _state.Allocator.AllocateBuffer(
+            _state, uploadSize, BufferUsageFlags.TransferSrcBit, MemoryIntent.CpuToGpu);
 
-        if (vk.AllocateMemory(_state.Device, &allocInfo, null, out _fontMemory) != Result.Success)
-            throw new InvalidOperationException("Failed to allocate ImGui font memory.");
-
-        vk.BindImageMemory(_state.Device, _fontImage, _fontMemory, 0);
-
-        // Create staging buffer
-        var (stagingBuffer, stagingMemory) = CreateBuffer(BufferUsageFlags.TransferSrcBit, uploadSize);
-
-        void* mapped;
-        vk.MapMemory(_state.Device, stagingMemory, 0, uploadSize, 0, &mapped);
+        void* mapped = _state.Allocator.Map(_state, stagingAlloc);
         System.Buffer.MemoryCopy((void*)pixels, mapped, (long)uploadSize, (long)uploadSize);
-        vk.UnmapMemory(_state.Device, stagingMemory);
+        _state.Allocator.Unmap(_state, stagingAlloc);
 
         // Upload via one-shot command buffer
         var cmdAllocInfo = new CommandBufferAllocateInfo
@@ -359,8 +329,7 @@ public sealed class VulkanImGui : IDisposable
         vk.QueueWaitIdle(_state.GraphicsQueue);
 
         vk.FreeCommandBuffers(_state.Device, _state.CommandPool, 1, &cmd);
-        vk.DestroyBuffer(_state.Device, stagingBuffer, null);
-        vk.FreeMemory(_state.Device, stagingMemory, null);
+        _state.Allocator.DestroyBuffer(_state, stagingBuffer, stagingAlloc);
 
         // Image view
         var viewInfo = new ImageViewCreateInfo
@@ -658,18 +627,6 @@ public sealed class VulkanImGui : IDisposable
         }
     }
 
-    private unsafe uint FindMemoryType(uint typeFilter, MemoryPropertyFlags properties)
-    {
-        _state.Vk.GetPhysicalDeviceMemoryProperties(_state.PhysicalDevice, out var memProps);
-        for (uint i = 0; i < memProps.MemoryTypeCount; i++)
-        {
-            if ((typeFilter & (1u << (int)i)) != 0 &&
-                (memProps.MemoryTypes[(int)i].PropertyFlags & properties) == properties)
-                return i;
-        }
-        throw new InvalidOperationException("Failed to find suitable memory type.");
-    }
-
     // Load ImGui shaders from SPIR-V files compiled alongside other shaders
     private static byte[] CompileImGuiVertexShader()
     {
@@ -691,15 +648,15 @@ public sealed class VulkanImGui : IDisposable
 
         for (int i = 0; i < GpuState.MaxFramesInFlight; i++)
         {
-            if (_vertexBufferSizes[i] > 0)
+            if (_vertexCapacities[i] > 0)
             {
-                vk.DestroyBuffer(_state.Device, _vertexBuffers[i], null);
-                vk.FreeMemory(_state.Device, _vertexMemories[i], null);
+                _state.Allocator.Unmap(_state, _vertexAllocs[i]);
+                _state.Allocator.DestroyBuffer(_state, _vertexBuffers[i], _vertexAllocs[i]);
             }
-            if (_indexBufferSizes[i] > 0)
+            if (_indexCapacities[i] > 0)
             {
-                vk.DestroyBuffer(_state.Device, _indexBuffers[i], null);
-                vk.FreeMemory(_state.Device, _indexMemories[i], null);
+                _state.Allocator.Unmap(_state, _indexAllocs[i]);
+                _state.Allocator.DestroyBuffer(_state, _indexBuffers[i], _indexAllocs[i]);
             }
         }
 
@@ -709,8 +666,7 @@ public sealed class VulkanImGui : IDisposable
         vk.DestroyDescriptorSetLayout(_state.Device, _descriptorSetLayout, null);
         vk.DestroySampler(_state.Device, _fontSampler, null);
         vk.DestroyImageView(_state.Device, _fontView, null);
-        vk.DestroyImage(_state.Device, _fontImage, null);
-        vk.FreeMemory(_state.Device, _fontMemory, null);
+        _state.Allocator.DestroyImage(_state, _fontImage, _fontAlloc);
 
         ImGui.DestroyContext();
     }

@@ -35,7 +35,7 @@ public sealed class DeferredDemo : IDemo
     // Mesh
     uint indexCount;
     Buffer vertexBuffer, indexBuffer;
-    DeviceMemory vertexMemory, indexMemory;
+    Allocation vertexAlloc, indexAlloc;
 
     // Shaders & render passes
     RenderPass gbufferRenderPass, lightingRenderPass, tonemapRenderPass, overlayRenderPass;
@@ -56,7 +56,7 @@ public sealed class DeferredDemo : IDemo
     // Transient resources (recreated on resize)
     Sampler sampler;
     Image gbufferPosImage, gbufferNormImage, gbufferAlbImage, depthImage, hdrImage;
-    DeviceMemory gbufferPosMemory, gbufferNormMemory, gbufferAlbMemory, depthMemory, hdrMemory;
+    Allocation gbufferPosAlloc, gbufferNormAlloc, gbufferAlbAlloc, depthAlloc, hdrAlloc;
     ImageView gbufferPosView, gbufferNormView, gbufferAlbView, depthView, hdrView;
     Framebuffer gbufferFramebuffer, lightingFramebuffer;
     Framebuffer[] swapchainFramebuffers = [];
@@ -184,9 +184,9 @@ public sealed class DeferredDemo : IDemo
             instance => window.CreateVulkanSurface(instance));
 
         // ─── Upload mesh to GPU ──────────────────────────────────────
-        (vertexBuffer, vertexMemory) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit,
+        (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit,
             mesh.Vertices);
-        (indexBuffer, indexMemory) = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit,
+        (indexBuffer, indexAlloc) = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit,
             mesh.Indices);
 
         // ─── Shaders ─────────────────────────────────────────────────
@@ -526,18 +526,18 @@ public sealed class DeferredDemo : IDemo
         uint w = extent.Width, h = extent.Height;
 
         // GBuffer images
-        (gbufferPosImage, gbufferPosMemory, gbufferPosView) =
+        (gbufferPosImage, gbufferPosAlloc, gbufferPosView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferPositionFormat, w, h);
-        (gbufferNormImage, gbufferNormMemory, gbufferNormView) =
+        (gbufferNormImage, gbufferNormAlloc, gbufferNormView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferNormalFormat, w, h);
-        (gbufferAlbImage, gbufferAlbMemory, gbufferAlbView) =
+        (gbufferAlbImage, gbufferAlbAlloc, gbufferAlbView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferAlbedoFormat, w, h);
 
         // Depth (samplable for debug visualization)
-        (depthImage, depthMemory, depthView) = VulkanImage.CreateDepthImage(gpu, w, h, gpu.Capabilities.DepthFormat, samplable: true);
+        (depthImage, depthAlloc, depthView) = VulkanImage.CreateDepthImage(gpu, w, h, gpu.Capabilities.DepthFormat, samplable: true);
 
         // HDR lighting output
-        (hdrImage, hdrMemory, hdrView) =
+        (hdrImage, hdrAlloc, hdrView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.HdrFormat, w, h);
 
         // GBuffer framebuffer (3 color + 1 depth)
@@ -587,11 +587,11 @@ public sealed class DeferredDemo : IDemo
         vk.DestroyDescriptorPool(gpu.Device, gbufferDescPool, null);
         vk.DestroyFramebuffer(gpu.Device, lightingFramebuffer, null);
         vk.DestroyFramebuffer(gpu.Device, gbufferFramebuffer, null);
-        VulkanImage.DestroyOffscreen(gpu, hdrImage, hdrMemory, hdrView);
-        VulkanImage.DestroyOffscreen(gpu, depthImage, depthMemory, depthView);
-        VulkanImage.DestroyOffscreen(gpu, gbufferAlbImage, gbufferAlbMemory, gbufferAlbView);
-        VulkanImage.DestroyOffscreen(gpu, gbufferNormImage, gbufferNormMemory, gbufferNormView);
-        VulkanImage.DestroyOffscreen(gpu, gbufferPosImage, gbufferPosMemory, gbufferPosView);
+        VulkanImage.DestroyOffscreen(gpu, hdrImage, hdrAlloc, hdrView);
+        VulkanImage.DestroyOffscreen(gpu, depthImage, depthAlloc, depthView);
+        VulkanImage.DestroyOffscreen(gpu, gbufferAlbImage, gbufferAlbAlloc, gbufferAlbView);
+        VulkanImage.DestroyOffscreen(gpu, gbufferNormImage, gbufferNormAlloc, gbufferNormView);
+        VulkanImage.DestroyOffscreen(gpu, gbufferPosImage, gbufferPosAlloc, gbufferPosView);
     }
 
     void RecreateSwapchainResources()
@@ -630,8 +630,8 @@ public sealed class DeferredDemo : IDemo
         vk.DestroyDescriptorSetLayout(gpu.Device, gbufferDsLayout, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
 
-        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexMemory);
-        VulkanBuffer.Destroy(gpu, indexBuffer, indexMemory);
+        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
+        VulkanBuffer.Destroy(gpu, indexBuffer, indexAlloc);
 
         gpu.Dispose();
         window.Dispose();

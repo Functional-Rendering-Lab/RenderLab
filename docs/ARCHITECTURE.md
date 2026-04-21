@@ -26,11 +26,15 @@ RenderLab.Platform.Android (Android composition root — Activity + SurfaceView)
 
 No circular dependencies. `Graph`, `Scene`, and `Functional` have zero internal dependencies.
 
+> `RenderLab.Platform.Android` is unloaded from `code.sln` pending re-integration against the current `Allocator` API. See [`ARCHITECTURE-ANDROID.md`](ARCHITECTURE-ANDROID.md).
+
 ## Purity Boundary
 
 Everything in `RenderLab.Graph` and `RenderLab.Scene` is pure — no side effects, no mutation, fully unit-testable without a GPU.
 
 Everything in `RenderLab.Gpu`, `RenderLab.Platform.Desktop`, and `RenderLab.Platform.Android` performs side effects. `GpuState` is the single mutable kernel, passed explicitly by reference — never global, never static. `DeviceCapabilities` is an immutable record on `GpuState`, queried once at device creation — papers read it instead of calling Vulkan directly.
+
+GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Allocator.cs`), hung off `GpuState.Allocator`. Every `vkAllocateMemory` goes through it; resource creation returns `(handle, Allocation)` so buffer/memory lifetimes are coupled at the type level, and callers pick a `MemoryIntent` (`GpuOnly`, `CpuToGpu`) instead of hand-rolling memory-property flags. The ImGui per-frame vertex/index buffers grow in doubling steps and stay mapped for the lifetime of the instance, so `vkAllocateMemory` fires O(log N) times at warm-up rather than every resize. Sub-allocation stays on the roadmap for when it becomes a measurable bottleneck (see `blogs/ideas/field-notes/choosing-a-vulkan-allocator`).
 
 `Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale. `RenderLabActivity.cs` (Android) is the mobile composition root.
 
@@ -83,6 +87,7 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `RenderGraphCompiler` | `Graph/RenderGraphCompiler.cs` | Topological sort + barrier insertion (pure) |
 | `ResolvedPass` | `Graph/GraphTypes.cs` | Compiler output: pass + computed barriers |
 | `GpuState` | `Gpu/GpuState.cs` | Single mutable kernel for all Vulkan state |
+| `Allocator` | `Gpu/Allocator.cs` | Engine's only GPU-memory allocation surface — intent-based, returns coupled `(handle, Allocation)` |
 | `DeviceCapabilities` | `Gpu/DeviceCapabilities.cs` | Immutable device properties/features queried once at creation |
 | `RenderCommand` | `Gpu/RenderCommand.cs` | Tagged union value type — zero heap allocation |
 | `Handle types` | `Gpu/Handles.cs` | Opaque typed indices with generation counters |

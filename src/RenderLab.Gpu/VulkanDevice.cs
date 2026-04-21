@@ -62,6 +62,7 @@ public static class VulkanDevice
             PresentQueueFamily = presentFamily,
             KhrSurface = khrSurface,
             KhrSwapchain = khrSwapchain,
+            Allocator = new Allocator(vk, physicalDevice),
         };
 
         VulkanSwapchain.Create(state, initialWidth, initialHeight);

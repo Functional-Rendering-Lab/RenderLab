@@ -40,7 +40,7 @@ public sealed class TriangleDemo : IDemo
 
     // Vertex buffer
     Buffer vertexBuffer;
-    DeviceMemory vertexMemory;
+    Allocation vertexAlloc;
 
     // Transient resources (recreated on swapchain resize)
     Framebuffer[] framebuffers = [];
@@ -151,7 +151,7 @@ public sealed class TriangleDemo : IDemo
             new(new Vector2( 0.0f,  0.5f), new Vector3(0f, 0f, 1f)), // top-center,   blue
         ];
 
-        (vertexBuffer, vertexMemory) = VulkanBuffer.Create<Vertex>(
+        (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex>(
             gpu, BufferUsageFlags.VertexBufferBit, vertices);
 
         Console.WriteLine("  Vertices: 3 (RGB triangle)");
@@ -223,7 +223,7 @@ public sealed class TriangleDemo : IDemo
         vk.DestroyPipeline(gpu.Device, pipeline, null);
         vk.DestroyPipelineLayout(gpu.Device, pipelineLayout, null);
         vk.DestroyRenderPass(gpu.Device, renderPass, null);
-        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexMemory);
+        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
 
         gpu.Dispose();
         window.Dispose();

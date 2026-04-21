@@ -49,7 +49,7 @@ public sealed class GBufferDemo : IDemo
     // Mesh
     uint indexCount;
     Buffer vertexBuffer, indexBuffer;
-    DeviceMemory vertexMemory, indexMemory;
+    Allocation vertexAlloc, indexAlloc;
 
     // Render passes
     RenderPass gbufferRenderPass;     // 3 color + depth
@@ -73,7 +73,7 @@ public sealed class GBufferDemo : IDemo
     // Transient resources (recreated on resize)
     Sampler sampler;
     Image gbufferPosImage, gbufferNormImage, gbufferAlbImage, depthImage;
-    DeviceMemory gbufferPosMemory, gbufferNormMemory, gbufferAlbMemory, depthMemory;
+    Allocation gbufferPosAlloc, gbufferNormAlloc, gbufferAlbAlloc, depthAlloc;
     ImageView gbufferPosView, gbufferNormView, gbufferAlbView, depthView;
     Framebuffer gbufferFramebuffer;
     Framebuffer[] swapchainFramebuffers = [];
@@ -170,9 +170,9 @@ public sealed class GBufferDemo : IDemo
             instance => window.CreateVulkanSurface(instance));
 
         // ─── Upload mesh ─────────────────────────────────────────────
-        (vertexBuffer, vertexMemory) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit,
+        (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit,
             mesh.Vertices);
-        (indexBuffer, indexMemory) = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit,
+        (indexBuffer, indexAlloc) = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit,
             mesh.Indices);
 
         // ─── Shaders ─────────────────────────────────────────────────
@@ -456,15 +456,15 @@ public sealed class GBufferDemo : IDemo
         uint w = extent.Width, h = extent.Height;
 
         // GBuffer images
-        (gbufferPosImage, gbufferPosMemory, gbufferPosView) =
+        (gbufferPosImage, gbufferPosAlloc, gbufferPosView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferPositionFormat, w, h);
-        (gbufferNormImage, gbufferNormMemory, gbufferNormView) =
+        (gbufferNormImage, gbufferNormAlloc, gbufferNormView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferNormalFormat, w, h);
-        (gbufferAlbImage, gbufferAlbMemory, gbufferAlbView) =
+        (gbufferAlbImage, gbufferAlbAlloc, gbufferAlbView) =
             VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferAlbedoFormat, w, h);
 
         // Depth (samplable so we can visualize it)
-        (depthImage, depthMemory, depthView) =
+        (depthImage, depthAlloc, depthView) =
             VulkanImage.CreateDepthImage(gpu, w, h, gpu.Capabilities.DepthFormat, samplable: true);
 
         // Framebuffers
@@ -491,10 +491,10 @@ public sealed class GBufferDemo : IDemo
         VulkanPipeline.DestroyFramebuffers(gpu, swapchainFramebuffers);
         vk.DestroyDescriptorPool(gpu.Device, debugVizDescPool, null);
         vk.DestroyFramebuffer(gpu.Device, gbufferFramebuffer, null);
-        VulkanImage.DestroyOffscreen(gpu, depthImage, depthMemory, depthView);
-        VulkanImage.DestroyOffscreen(gpu, gbufferAlbImage, gbufferAlbMemory, gbufferAlbView);
-        VulkanImage.DestroyOffscreen(gpu, gbufferNormImage, gbufferNormMemory, gbufferNormView);
-        VulkanImage.DestroyOffscreen(gpu, gbufferPosImage, gbufferPosMemory, gbufferPosView);
+        VulkanImage.DestroyOffscreen(gpu, depthImage, depthAlloc, depthView);
+        VulkanImage.DestroyOffscreen(gpu, gbufferAlbImage, gbufferAlbAlloc, gbufferAlbView);
+        VulkanImage.DestroyOffscreen(gpu, gbufferNormImage, gbufferNormAlloc, gbufferNormView);
+        VulkanImage.DestroyOffscreen(gpu, gbufferPosImage, gbufferPosAlloc, gbufferPosView);
     }
 
     void RecreateSwapchainResources()
@@ -526,8 +526,8 @@ public sealed class GBufferDemo : IDemo
         vk.DestroyRenderPass(gpu.Device, overlayRenderPass, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
 
-        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexMemory);
-        VulkanBuffer.Destroy(gpu, indexBuffer, indexMemory);
+        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
+        VulkanBuffer.Destroy(gpu, indexBuffer, indexAlloc);
 
         gpu.Dispose();
         window.Dispose();

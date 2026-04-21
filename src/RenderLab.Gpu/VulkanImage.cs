@@ -4,7 +4,7 @@ namespace RenderLab.Gpu;
 
 /// <summary>
 /// Creates offscreen images, depth images, and samplers for render targets.
-/// All images use device-local memory (optimal tiling).
+/// Thin convenience over <see cref="Allocator"/>; all images use device-local memory.
 /// </summary>
 public static class VulkanImage
 {
@@ -12,8 +12,8 @@ public static class VulkanImage
     /// Creates a 2D color image usable as both a color attachment and a shader-sampled texture.
     /// Used for GBuffer targets and the HDR lighting output.
     /// </summary>
-    /// <returns>Image, backing memory, and image view (all must be destroyed via <see cref="DestroyOffscreen"/>).</returns>
-    public static unsafe (Image image, DeviceMemory memory, ImageView view) CreateOffscreen(
+    /// <returns>Image, allocation, and image view (pass image+alloc to <see cref="DestroyOffscreen"/>).</returns>
+    public static unsafe (Image image, Allocation alloc, ImageView view) CreateOffscreen(
         GpuState state, Format format, uint width, uint height)
     {
         var imageInfo = new ImageCreateInfo
@@ -31,23 +31,7 @@ public static class VulkanImage
             InitialLayout = ImageLayout.Undefined,
         };
 
-        if (state.Vk.CreateImage(state.Device, &imageInfo, null, out var image) != Result.Success)
-            throw new InvalidOperationException("Failed to create offscreen image.");
-
-        state.Vk.GetImageMemoryRequirements(state.Device, image, out var memReqs);
-
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memReqs.Size,
-            MemoryTypeIndex = FindMemoryType(state, memReqs.MemoryTypeBits,
-                MemoryPropertyFlags.DeviceLocalBit),
-        };
-
-        if (state.Vk.AllocateMemory(state.Device, &allocInfo, null, out var memory) != Result.Success)
-            throw new InvalidOperationException("Failed to allocate offscreen image memory.");
-
-        state.Vk.BindImageMemory(state.Device, image, memory, 0);
+        var (image, alloc) = state.Allocator.AllocateImage(state, in imageInfo, MemoryIntent.GpuOnly);
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -68,15 +52,14 @@ public static class VulkanImage
         if (state.Vk.CreateImageView(state.Device, &viewInfo, null, out var view) != Result.Success)
             throw new InvalidOperationException("Failed to create offscreen image view.");
 
-        return (image, memory, view);
+        return (image, alloc, view);
     }
 
     public static unsafe void DestroyOffscreen(
-        GpuState state, Image image, DeviceMemory memory, ImageView view)
+        GpuState state, Image image, Allocation alloc, ImageView view)
     {
         state.Vk.DestroyImageView(state.Device, view, null);
-        state.Vk.DestroyImage(state.Device, image, null);
-        state.Vk.FreeMemory(state.Device, memory, null);
+        state.Allocator.DestroyImage(state, image, alloc);
     }
 
     /// <summary>
@@ -126,16 +109,16 @@ public static class VulkanImage
     /// <summary>
     /// Creates a depth image for depth testing. Queries the device for the best supported format.
     /// </summary>
-    public static unsafe (Image image, DeviceMemory memory, ImageView view) CreateDepthImage(
+    public static unsafe (Image image, Allocation alloc, ImageView view) CreateDepthImage(
         GpuState state, uint width, uint height)
     {
         return CreateDepthImage(state, width, height, FindDepthFormat(state));
     }
 
     /// <summary>
-    /// Creates a depth image with an explicit format. Use <see cref="FindDepthFormat"/> to query support.
+    /// Creates a depth image with an explicit format. Use <see cref="FindDepthFormat(GpuState)"/> to query support.
     /// </summary>
-    public static unsafe (Image image, DeviceMemory memory, ImageView view) CreateDepthImage(
+    public static unsafe (Image image, Allocation alloc, ImageView view) CreateDepthImage(
         GpuState state, uint width, uint height, Format depthFormat, bool samplable = false)
     {
         var usage = ImageUsageFlags.DepthStencilAttachmentBit;
@@ -156,23 +139,7 @@ public static class VulkanImage
             InitialLayout = ImageLayout.Undefined,
         };
 
-        if (state.Vk.CreateImage(state.Device, &imageInfo, null, out var image) != Result.Success)
-            throw new InvalidOperationException("Failed to create depth image.");
-
-        state.Vk.GetImageMemoryRequirements(state.Device, image, out var memReqs);
-
-        var allocInfo = new MemoryAllocateInfo
-        {
-            SType = StructureType.MemoryAllocateInfo,
-            AllocationSize = memReqs.Size,
-            MemoryTypeIndex = FindMemoryType(state, memReqs.MemoryTypeBits,
-                MemoryPropertyFlags.DeviceLocalBit),
-        };
-
-        if (state.Vk.AllocateMemory(state.Device, &allocInfo, null, out var memory) != Result.Success)
-            throw new InvalidOperationException("Failed to allocate depth image memory.");
-
-        state.Vk.BindImageMemory(state.Device, image, memory, 0);
+        var (image, alloc) = state.Allocator.AllocateImage(state, in imageInfo, MemoryIntent.GpuOnly);
 
         var viewInfo = new ImageViewCreateInfo
         {
@@ -193,20 +160,6 @@ public static class VulkanImage
         if (state.Vk.CreateImageView(state.Device, &viewInfo, null, out var view) != Result.Success)
             throw new InvalidOperationException("Failed to create depth image view.");
 
-        return (image, memory, view);
-    }
-
-    private static unsafe uint FindMemoryType(GpuState state, uint typeFilter, MemoryPropertyFlags properties)
-    {
-        state.Vk.GetPhysicalDeviceMemoryProperties(state.PhysicalDevice, out var memProps);
-
-        for (uint i = 0; i < memProps.MemoryTypeCount; i++)
-        {
-            if ((typeFilter & (1u << (int)i)) != 0 &&
-                (memProps.MemoryTypes[(int)i].PropertyFlags & properties) == properties)
-                return i;
-        }
-
-        throw new InvalidOperationException($"Failed to find suitable memory type for flags {properties}.");
+        return (image, alloc, view);
     }
 }
