@@ -38,7 +38,10 @@
       "WebSearch",
       "Bash(curl -s \"https://api.github.com/repos/ab4d/VMA-CS\")",
       "Bash(curl -s \"https://api-v2v3search-0.nuget.org/query?q=VulkanMemoryAllocator&take=10\")",
-      "Bash(git *)"
+      "Bash(git *)",
+      "mcp__serena__read_file",
+      "mcp__serena__check_onboarding_performed",
+      "mcp__serena__find_symbol"
     ]
   }
 }
