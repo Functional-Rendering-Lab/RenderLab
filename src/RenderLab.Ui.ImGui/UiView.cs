@@ -2,7 +2,9 @@ using System.Numerics;
 using ImGuiNET;
 using RenderLab.Ui;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
+
+using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
 /// Composes the app shell (main menu bar, dockspace) and debug panels into the

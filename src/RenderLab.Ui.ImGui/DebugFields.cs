@@ -1,7 +1,9 @@
 using System.Numerics;
 using ImGuiNET;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
+
+using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
 /// Functional wrappers over ImGui's ref-based widget API.

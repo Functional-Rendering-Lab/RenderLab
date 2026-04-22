@@ -1,7 +1,7 @@
 using System.Numerics;
 using ImGuiNET;
 using Silk.NET.Vulkan;
-using RenderLab.Debug;
+using RenderLab.Ui.ImGui;
 using RenderLab.Gpu;
 using RenderLab.Platform.Desktop;
 using RenderLab.Ui;

@@ -3,7 +3,9 @@ using ImGuiNET;
 using RenderLab.Scene;
 using RenderLab.Ui;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
+
+using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
 /// View fragment for the lighting panel (shading mode, light, lighting-only toggle).

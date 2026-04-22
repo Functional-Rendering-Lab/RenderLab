@@ -1,7 +1,9 @@
 using ImGuiNET;
 using RenderLab.Ui;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
+
+using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
 /// View fragment for the GBuffer visualization selector. Emits

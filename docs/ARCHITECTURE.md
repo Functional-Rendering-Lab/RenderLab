@@ -15,11 +15,20 @@ RenderLab.App              (desktop composition root — wires everything)
   |     '-> RenderLab.Functional (Optional, Result, Pipe)
   |-> RenderLab.Graph
   |-> RenderLab.Scene
-  |-> RenderLab.Debug      (ImGui overlay, GPU timestamps -> depends on Gpu)
+  |-> RenderLab.Ui         (pure Elm-style state: Model/Msg/Update/Intent — no ImGui, no Vulkan)
+  |-> RenderLab.Ui.ImGui   (imperative shell for RenderLab.Ui: ImGui views + GPU timestamps -> depends on Gpu, Ui)
   '-> RenderLab.Platform.Desktop  (GLFW window — no internal deps)
 ```
 
-No circular dependencies. `Graph`, `Scene`, and `Functional` have zero internal dependencies.
+No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero side-effect dependencies (no Vulkan, no ImGui).
+
+### Ui ↔ Ui.ImGui split
+
+`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `DemoId`, `FrameStats`. It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
+
+`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Each debug panel (`AppMenuBar`, `LightingDebugMenu`, `FreeCameraDebugMenu`, `RenderGraphDebugMenu`, `SphereDebugMenu`, `VisualizationDebugMenu`) reads an immutable slice of the model, draws ImGui widgets, and returns `UiIntent`s the shell folds back through `AppUiUpdate`.
+
+The assembly is `RenderLab.Ui.ImGui` but the last namespace segment collides with `ImGuiNET.ImGui` (the ImGui entry-point class) during simple-name lookup. To keep the assembly name matching the folder, each file declares a `using ImGui = ImGuiNET.ImGui;` alias *inside* the namespace — compilation-unit aliases lose to the parent-namespace walk-up, so the alias must live after `namespace RenderLab.Ui.ImGui;`.
 
 ## Purity Boundary
 
@@ -123,7 +132,8 @@ src/
                                MaterialParams, OBJ loader
   RenderLab.Platform.Desktop/  GLFW window wrapper (poll-based)
   RenderLab.Papers/            Paper implementations (DeferredLighting)
-  RenderLab.Debug/             ImGui integration, GPU timestamp queries
+  RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
+  RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
   RenderLab.Shaders/           GLSL sources + SPIR-V build script
   RenderLab.App/               Desktop composition root (Program.cs)
 tests/

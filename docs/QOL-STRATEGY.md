@@ -8,7 +8,7 @@ Without these tools, every paper implementation degrades into a printf-debugging
 
 ## Platform Strategy
 
-**Desktop is the sole development target.** Learning rendering fundamentals is a desktop workflow: edit code, tweak parameters, inspect buffers, compare against reference images. Interactive tooling (free-fly camera, debug menus, buffer visualization) depends on mouse and keyboard, so it lives in `RenderLab.Platform.Desktop` and `RenderLab.Debug`. Pure types in `RenderLab.Scene` stay backend-agnostic so a future platform can reuse them.
+**Desktop is the sole development target.** Learning rendering fundamentals is a desktop workflow: edit code, tweak parameters, inspect buffers, compare against reference images. Interactive tooling (free-fly camera, debug menus, buffer visualization) depends on mouse and keyboard, so it lives in `RenderLab.Platform.Desktop` and `RenderLab.Ui.ImGui`. Pure types in `RenderLab.Scene` stay backend-agnostic so a future platform can reuse them.
 
 ## What Was Added
 
@@ -16,7 +16,7 @@ Without these tools, every paper implementation degrades into a printf-debugging
 Free-fly camera controller with mouse-driven rotation and translation along the camera's local axes. The controller is a pure function (`FreeCameraState × CameraInput → FreeCameraState`) in `RenderLab.Scene`. Input polling lives in `RenderLab.Platform.Desktop`. ImGui gets input priority via `io.WantCaptureMouse` — debug panel interactions never leak into camera movement.
 
 ### Two-Way Debug Menus
-`DebugFields` (in `RenderLab.Debug`) bridges ImGui's `ref`-based API to a functional return-value style. Each helper takes an immutable value, shows a widget, returns the potentially modified value. Debug menus compose these into per-domain panels that follow the pattern `State → State`. The camera panel (`FreeCameraDebugMenu`) and visualization selector (`VisualizationDebugMenu`) are the first two.
+`DebugFields` (in `RenderLab.Ui.ImGui`) bridges ImGui's `ref`-based API to a functional return-value style. Each helper takes an immutable value, shows a widget, returns the potentially modified value. Debug menus compose these into per-domain panels that follow the pattern `State → State`. The camera panel (`FreeCameraDebugMenu`) and visualization selector (`VisualizationDebugMenu`) are the first two.
 
 Adding a new debug panel for a paper is one static method:
 ```csharp

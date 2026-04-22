@@ -39,7 +39,8 @@ code/
     RenderLab.Scene             immutable scene data (Camera, Mesh, Vertex, PointLight, MaterialParams)
     RenderLab.Papers            paper implementations (DeferredLighting)
     RenderLab.Functional        Optional, Result, Pipe
-    RenderLab.Debug             ImGui overlay, GPU timestamps
+    RenderLab.Ui                pure Elm-style UI state (Model/Msg/Update/Intent)
+    RenderLab.Ui.ImGui          imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
     RenderLab.Shaders           GLSL / SPIR-V shaders
     RenderLab.Platform.Desktop  GLFW window
   tests/

@@ -239,7 +239,8 @@ RenderLab.sln
 │   ├── RenderLab.Platform.Desktop/  GLFW window, surface creation, main loop
 │   ├── RenderLab.Scene/             Mesh, Camera, Transform — immutable records
 │   ├── RenderLab.Shaders/           GLSL/HLSL sources, build-time SPIR-V compilation
-│   ├── RenderLab.Debug/             ImGui integration, stats overlay, GPU timers
+│   ├── RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
+│   ├── RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views, stats overlay, GPU timers
 │   ├── RenderLab.Papers/            Paper implementations as static modules
 │   │   ├── ClearScreen.cs           Milestone 0: validate full chain
 │   │   ├── ForwardLit.cs            Milestone 1: basic forward pass

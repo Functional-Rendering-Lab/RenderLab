@@ -9,7 +9,7 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RenderLab.App", "src\RenderLab.App\RenderLab.App.csproj", "{AEE0AE33-C3DE-F798-30A7-A4B7CB32A337}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RenderLab.Debug", "src\RenderLab.Debug\RenderLab.Debug.csproj", "{34F782F5-C6A0-3ABB-2567-1E80B367904A}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RenderLab.Ui.ImGui", "src\RenderLab.Ui.ImGui\RenderLab.Ui.ImGui.csproj", "{34F782F5-C6A0-3ABB-2567-1E80B367904A}"
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RenderLab.Functional", "src\RenderLab.Functional\RenderLab.Functional.csproj", "{AA2A555A-4168-F045-52C5-46032418C723}"
 EndProject

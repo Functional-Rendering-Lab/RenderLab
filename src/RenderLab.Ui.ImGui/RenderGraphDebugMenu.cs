@@ -3,7 +3,9 @@ using System.Numerics;
 using ImGuiNET;
 using RenderLab.Graph;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
+
+using ImGui = ImGuiNET.ImGui;
 
 public static class RenderGraphDebugMenu
 {

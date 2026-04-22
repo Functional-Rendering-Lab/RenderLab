@@ -1,7 +1,7 @@
 using RenderLab.Gpu;
 using Silk.NET.Vulkan;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
 
 /// <summary>
 /// Records GPU-side timestamp queries to measure per-pass execution time.

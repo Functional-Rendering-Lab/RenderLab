@@ -5,7 +5,9 @@ using RenderLab.Gpu;
 using Silk.NET.Vulkan;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
-namespace RenderLab.Debug;
+namespace RenderLab.Ui.ImGui;
+
+using ImGui = ImGuiNET.ImGui;
 
 public sealed class VulkanImGui : IDisposable
 {
