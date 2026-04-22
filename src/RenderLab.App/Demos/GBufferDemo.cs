@@ -4,6 +4,7 @@ using ImGuiNET;
 using Silk.NET.Vulkan;
 using RenderLab.Debug;
 using RenderLab.Gpu;
+using RenderLab.Ui;
 using RenderLab.Platform.Desktop;
 using RenderLab.Scene;
 using Buffer = Silk.NET.Vulkan.Buffer;
@@ -85,8 +86,12 @@ public sealed class GBufferDemo : IDemo
     // ImGui
     VulkanImGui imgui = null!;
 
-    public void Run()
+    // App-shell model (menu bar dispatches messages into this)
+    AppUiModel app = AppUiModel.Default(DemoId.GBuffer);
+
+    public DemoId? Run(AppUiModel initialApp)
     {
+        app = initialApp;
         Init();
 
         var frameTimer = System.Diagnostics.Stopwatch.StartNew();
@@ -94,6 +99,9 @@ public sealed class GBufferDemo : IDemo
 
         while (!window.IsClosing)
         {
+            if (app.RequestedExit) return null;
+            if (app.RequestedDemo is { } switchTo) return switchTo;
+
             window.DoEvents();
 
             if (window.Width == 0 || window.Height == 0) continue;
@@ -150,6 +158,8 @@ public sealed class GBufferDemo : IDemo
             if (!VulkanFrame.EndFrame(gpu, imageIndex))
                 RecreateSwapchainResources();
         }
+
+        return null;
     }
 
     void Init()
@@ -420,6 +430,12 @@ public sealed class GBufferDemo : IDemo
     {
         imgui.NewFrame(window.Width, window.Height, dt);
 
+        // App shell: menu bar (File / Demo) lets the user switch demos or exit.
+        // No "View" menu here — GBufferDemo has its own fixed debug layout.
+        var appMessages = new List<AppUiMsg>();
+        AppMenuBar.Draw(app, appMessages.Add, includeViewMenu: false);
+        ImGui.DockSpaceOverViewport(0, ImGui.GetMainViewport(), ImGuiDockNodeFlags.PassthruCentralNode);
+
         // G-Buffer visualization selector (4 modes only — no Final or HDR)
         ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(280, 60), ImGuiCond.FirstUseEver);
@@ -433,7 +449,10 @@ public sealed class GBufferDemo : IDemo
         ImGui.End();
 
         // Camera controls
-        cameraState = FreeCameraDebugMenu.Draw(cameraState);
+        FreeCameraDebugMenu.Draw(cameraState, msg =>
+        {
+            if (msg is UiMsg.UpdateCamera u) cameraState = u.Camera;
+        });
         camera = FreeCameraController.ToCamera(cameraState,
             (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
 
@@ -443,6 +462,8 @@ public sealed class GBufferDemo : IDemo
         if (ImGui.Begin("Frame"))
             ImGui.Text($"{dt * 1000:F1} ms ({1.0f / dt:F0} FPS)");
         ImGui.End();
+
+        app = AppUiUpdate.ApplyAll(app, appMessages);
 
         imgui.RecordCommands(api, cb, overlayRenderPass,
             overlayFramebuffers[imageIndex], gpu.SwapchainExtent);

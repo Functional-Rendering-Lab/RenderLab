@@ -1,14 +1,15 @@
 using System.Numerics;
 using ImGuiNET;
 using RenderLab.Scene;
+using RenderLab.Ui;
 
 namespace RenderLab.Debug;
 
 /// <summary>
-/// Two-way debug panel for <see cref="PointLight"/> and the deferred shading
-/// mode. Material parameters live in <see cref="SphereDebugMenu"/>. Call
-/// <see cref="Draw"/> each frame inside an ImGui context — it returns the
-/// (potentially edited) values.
+/// View fragment for the lighting panel (shading mode, light, lighting-only toggle).
+/// Emits <see cref="UiMsg.UpdateLight"/>, <see cref="UiMsg.SetShading"/> and
+/// <see cref="UiMsg.SetLightingOnly"/> on change — one message per independent
+/// concern so the reducer can update them in isolation.
 /// </summary>
 public static class LightingDebugMenu
 {
@@ -19,8 +20,9 @@ public static class LightingDebugMenu
         "Blinn-Phong (N·H)",
     };
 
-    public static (PointLight light, ShadingMode mode, bool lightingOnly) Draw(
-        PointLight light, ShadingMode mode, bool lightingOnly)
+    public static void Draw(
+        PointLight light, ShadingMode mode, bool lightingOnly,
+        Action<UiMsg> dispatch)
     {
         ImGui.SetNextWindowPos(new Vector2(10, 440), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(320, 220), ImGuiCond.FirstUseEver);
@@ -28,7 +30,7 @@ public static class LightingDebugMenu
         if (!ImGui.Begin("Lighting"))
         {
             ImGui.End();
-            return (light, mode, lightingOnly);
+            return;
         }
 
         ImGui.SeparatorText("Shading");
@@ -45,10 +47,14 @@ public static class LightingDebugMenu
 
         ImGui.End();
 
-        return (
-            light with { Position = position, Color = color, Intensity = intensity },
-            newMode,
-            newLightingOnly
-        );
+        var nextLight = light with { Position = position, Color = color, Intensity = intensity };
+        if (!nextLight.Equals(light))
+            dispatch(new UiMsg.UpdateLight(nextLight));
+
+        if (newMode != mode)
+            dispatch(new UiMsg.SetShading(newMode));
+
+        if (newLightingOnly != lightingOnly)
+            dispatch(new UiMsg.SetLightingOnly(newLightingOnly));
     }
 }

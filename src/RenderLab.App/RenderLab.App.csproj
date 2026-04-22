@@ -7,6 +7,7 @@
     <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
     <ProjectReference Include="..\RenderLab.Scene\RenderLab.Scene.csproj" />
     <ProjectReference Include="..\RenderLab.Debug\RenderLab.Debug.csproj" />
+    <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
     <ProjectReference Include="..\RenderLab.Papers\RenderLab.Papers.csproj" />
   </ItemGroup>
 

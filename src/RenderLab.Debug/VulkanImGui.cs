@@ -50,6 +50,16 @@ public sealed class VulkanImGui : IDisposable
         _indexMapped = new IntPtr[frames];
     }
 
+    private static string ResolveIniPath()
+    {
+        string root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        if (string.IsNullOrEmpty(root))
+            root = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".renderlab");
+        string dir = Path.Combine(root, "RenderLab");
+        Directory.CreateDirectory(dir);
+        return Path.Combine(dir, "imgui.ini");
+    }
+
     public static unsafe VulkanImGui Create(GpuState state, RenderPass renderPass)
     {
         var imgui = new VulkanImGui(state);
@@ -58,7 +68,9 @@ public sealed class VulkanImGui : IDisposable
 
         var io = ImGui.GetIO();
         io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset;
+        io.ConfigFlags  |= ImGuiConfigFlags.DockingEnable;
         io.FontGlobalScale = 1.5f;
+        io.NativePtr->IniFilename = (byte*)Marshal.StringToCoTaskMemUTF8(ResolveIniPath());
 
         imgui.CreateFontAtlas();
         imgui.CreateDescriptorResources();

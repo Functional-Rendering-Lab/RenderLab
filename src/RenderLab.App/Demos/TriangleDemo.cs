@@ -1,7 +1,10 @@
 using System.Numerics;
+using ImGuiNET;
 using Silk.NET.Vulkan;
+using RenderLab.Debug;
 using RenderLab.Gpu;
 using RenderLab.Platform.Desktop;
+using RenderLab.Ui;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using Framebuffer = Silk.NET.Vulkan.Framebuffer;
 
@@ -21,7 +24,10 @@ namespace RenderLab.App.Demos;
 //   7. Vertex buffer (triangle data on the GPU)
 //   8. Frame loop (acquire, record, submit, present, synchronize)
 //
-// No ImGui, no debug tools, no multi-pass — just the raw pipeline.
+// The core pipeline is still one pass, one draw. A second "overlay" render
+// pass (LoadOp.Load → Store) is appended solely to host the app shell's
+// ImGui menu bar so the user can navigate back to other demos — it does not
+// touch the pedagogical triangle pipeline.
 
 public sealed class TriangleDemo : IDemo
 {
@@ -44,10 +50,20 @@ public sealed class TriangleDemo : IDemo
 
     // Transient resources (recreated on swapchain resize)
     Framebuffer[] framebuffers = [];
+    Framebuffer[] overlayFramebuffers = [];
 
-    public void Run()
+    // App shell overlay — isolated from the pedagogical triangle pipeline
+    VulkanImGui imgui = null!;
+    RenderPass overlayRenderPass;
+    AppUiModel app = AppUiModel.Default(DemoId.Triangle);
+
+    public DemoId? Run(AppUiModel initialApp)
     {
+        app = initialApp;
         Init();
+
+        var frameTimer = System.Diagnostics.Stopwatch.StartNew();
+        double lastFrameTime = 0;
 
         // ─── 8. Frame loop ───────────────────────────────────────────
         // Every frame: acquire an image, record commands, submit, present.
@@ -56,6 +72,9 @@ public sealed class TriangleDemo : IDemo
 
         while (!window.IsClosing)
         {
+            if (app.RequestedExit) return null;
+            if (app.RequestedDemo is { } switchTo) return switchTo;
+
             window.DoEvents();
 
             if (window.Width == 0 || window.Height == 0) continue;
@@ -68,6 +87,19 @@ public sealed class TriangleDemo : IDemo
                 continue;
             }
 
+            double currentTime = frameTimer.Elapsed.TotalSeconds;
+            float deltaTime = (float)(currentTime - lastFrameTime);
+            lastFrameTime = currentTime;
+
+            // Feed input to ImGui so the menu bar is clickable
+            var input = window.PollInput();
+            var io = ImGui.GetIO();
+            io.MousePos = input.MousePosition;
+            io.MouseDown[0] = input.LeftButtonDown;
+            io.MouseDown[1] = input.RightButtonDown;
+            io.MouseDown[2] = input.MiddleButtonDown;
+            io.MouseWheel = input.ScrollDelta;
+
             // Step 1: Acquire the next swapchain image
             if (!VulkanFrame.BeginFrame(gpu, out var imageIndex))
             {
@@ -75,14 +107,30 @@ public sealed class TriangleDemo : IDemo
                 continue;
             }
 
-            // Step 2: Record commands
+            // Step 2: Record commands — triangle pass, then overlay menu bar
             var cmd = gpu.CommandBuffers[gpu.CurrentFrame];
             RecordCommands(cmd, imageIndex);
+            RecordOverlayPass(cmd, imageIndex, deltaTime);
 
             // Step 3: Submit and present
             if (!VulkanFrame.EndFrame(gpu, imageIndex))
                 RecreateSwapchainResources();
         }
+
+        return null;
+    }
+
+    void RecordOverlayPass(CommandBuffer cmd, uint imageIndex, float dt)
+    {
+        imgui.NewFrame(window.Width, window.Height, dt);
+
+        var appMessages = new List<AppUiMsg>();
+        AppMenuBar.Draw(app, appMessages.Add, includeViewMenu: false);
+
+        app = AppUiUpdate.ApplyAll(app, appMessages);
+
+        imgui.RecordCommands(vk, cmd, overlayRenderPass,
+            overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
     }
 
     void Init()
@@ -158,6 +206,11 @@ public sealed class TriangleDemo : IDemo
 
         // Create framebuffers for each swapchain image
         framebuffers = VulkanPipeline.CreateFramebuffers(gpu, renderPass);
+
+        // ─── App shell overlay (isolated from the triangle pipeline) ────
+        overlayRenderPass = VulkanPipeline.CreateOverlayRenderPass(gpu);
+        overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
+        imgui = VulkanImGui.Create(gpu, overlayRenderPass);
     }
 
     // ─── Command recording ───────────────────────────────────────────
@@ -207,10 +260,12 @@ public sealed class TriangleDemo : IDemo
     {
         vk.DeviceWaitIdle(gpu.Device);
         VulkanPipeline.DestroyFramebuffers(gpu, framebuffers);
+        VulkanPipeline.DestroyFramebuffers(gpu, overlayFramebuffers);
         VulkanDevice.DestroyRenderFinishedSemaphores(gpu);
         VulkanSwapchain.Recreate(gpu, (uint)window.Width, (uint)window.Height);
         VulkanDevice.CreateRenderFinishedSemaphores(gpu);
         framebuffers = VulkanPipeline.CreateFramebuffers(gpu, renderPass);
+        overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
     }
 
     // ─── Cleanup ─────────────────────────────────────────────────────
@@ -218,6 +273,10 @@ public sealed class TriangleDemo : IDemo
     public unsafe void Dispose()
     {
         vk.DeviceWaitIdle(gpu.Device);
+
+        imgui.Dispose();
+        VulkanPipeline.DestroyFramebuffers(gpu, overlayFramebuffers);
+        vk.DestroyRenderPass(gpu.Device, overlayRenderPass, null);
 
         VulkanPipeline.DestroyFramebuffers(gpu, framebuffers);
         vk.DestroyPipeline(gpu.Device, pipeline, null);

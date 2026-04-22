@@ -9,6 +9,7 @@ using RenderLab.Graph;
 using RenderLab.Papers;
 using RenderLab.Platform.Desktop;
 using RenderLab.Scene;
+using RenderLab.Ui;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using Framebuffer = Silk.NET.Vulkan.Framebuffer;
 
@@ -17,7 +18,7 @@ namespace RenderLab.App.Demos;
 // ─── M3: Deferred Baseline ──────────────────────────────────────────
 // Validates: Multiple color attachments, descriptor sets, push constants,
 // fullscreen-quad lighting, ImGui integration.
-// Pipeline: GBuffer → Lighting → Tonemap → ImGui overlay
+// Pipeline: GBuffer → Lighting → Tonemap → Ui (ImGui overlay in-graph)
 
 public sealed class DeferredDemo : IDemo
 {
@@ -43,15 +44,13 @@ public sealed class DeferredDemo : IDemo
     Pipeline gbufferPipeline, lightingPipeline, tonemapPipeline, debugVizPipeline;
     PipelineLayout gbufferPipelineLayout, lightingPipelineLayout, tonemapPipelineLayout, debugVizPipelineLayout;
 
-    // Camera & scene
-    FreeCameraState cameraState;
+    // UI / scene-editing state (Elm-style: pure model, view emits messages, reducer folds)
+    UiModel ui = UiModel.Default;
+    AppUiModel app = AppUiModel.Default(DemoId.Deferred);
+    UiIntent lastIntent = UiIntent.None;
+
+    // Derived per frame from ui.Camera + swapchain aspect
     Camera camera = null!;
-    PointLight keyLight = null!;
-    MaterialParams material = MaterialParams.Default;
-    Transform meshTransform = Transform.Default;
-    ShadingMode shadingMode = ShadingMode.BlinnPhong;
-    bool lightingOnly = false;
-    VisualizationMode vizMode = VisualizationMode.Final;
 
     // Transient resources (recreated on resize)
     Sampler sampler;
@@ -75,8 +74,9 @@ public sealed class DeferredDemo : IDemo
     ImmutableArray<ResolvedPass> resolvedPasses;
     ResourceName gPosition, gNormal, gAlbedo, hdrColor, backbuffer;
 
-    public void Run()
+    public DemoId? Run(AppUiModel initialApp)
     {
+        app = initialApp;
         Init();
 
         var frameTimer = System.Diagnostics.Stopwatch.StartNew();
@@ -84,6 +84,9 @@ public sealed class DeferredDemo : IDemo
 
         while (!window.IsClosing)
         {
+            if (app.RequestedExit) return null;
+            if (app.RequestedDemo is { } switchTo) return switchTo;
+
             window.DoEvents();
 
             if (window.Width == 0 || window.Height == 0) continue;
@@ -100,11 +103,12 @@ public sealed class DeferredDemo : IDemo
             float deltaTime = (float)(currentTime - lastFrameTime);
             lastFrameTime = currentTime;
 
-            // Poll input — only feed to camera if ImGui doesn't want the mouse
+            // Poll input — forward to the camera only if the previous frame's UI
+            // didn't capture the mouse. ImGui's IO is populated below so this
+            // frame's widgets see the same snapshot.
             var input = window.PollInput();
-            var io = ImGui.GetIO();
 
-            if (!io.WantCaptureMouse)
+            if (!lastIntent.WantCaptureMouse)
             {
                 var cameraInput = new CameraInput(
                     YawDelta: input.LeftButtonDown ? -input.MouseDelta.X * RotateSensitivity : 0,
@@ -114,11 +118,12 @@ public sealed class DeferredDemo : IDemo
                         input.MiddleButtonDown ?  input.MouseDelta.Y * PanSensitivity : 0,
                         input.ScrollDelta * ZoomSensitivity));
 
-                cameraState = FreeCameraController.Update(cameraState, cameraInput);
-                camera = FreeCameraController.ToCamera(cameraState, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
+                ui = ui with { Camera = FreeCameraController.Update(ui.Camera, cameraInput) };
+                camera = FreeCameraController.ToCamera(ui.Camera, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
             }
 
             // Feed mouse state to ImGui so it knows what's hovered/clicked
+            var io = ImGui.GetIO();
             io.MousePos = input.MousePosition;
             io.MouseDown[0] = input.LeftButtonDown;
             io.MouseDown[1] = input.RightButtonDown;
@@ -155,17 +160,17 @@ public sealed class DeferredDemo : IDemo
                 ["GBuffer"] = (api, cb) => RecordGBufferPass(api, cb),
                 ["Lighting"] = (api, cb) => RecordLightingPass(api, cb),
                 ["Tonemap"] = (api, cb) => RecordTonemapPass(api, cb, imageIndex),
+                ["Ui"] = (api, cb) => RecordImGuiPass(api, cb, imageIndex, deltaTime),
             };
 
-            // Execute compiled render graph
+            // Execute compiled render graph (Ui is the final pass)
             VulkanGraphExecutor.Execute(gpu, cmd, resolvedPasses, passRecorders, resourceImages);
-
-            // ImGui overlay (outside render graph — always last)
-            RecordImGuiPass(vk, cmd, imageIndex, deltaTime);
 
             if (!VulkanFrame.EndFrame(gpu, imageIndex))
                 RecreateSwapchainResources();
         }
+
+        return null;
     }
 
     void Init()
@@ -244,14 +249,8 @@ public sealed class DeferredDemo : IDemo
             vk.DestroyShaderModule(gpu.Device, debugVizFragModule, null);
         }
 
-        // ─── Camera ──────────────────────────────────────────────────
-        cameraState = FreeCameraController.CreateDefault();
-        camera = FreeCameraController.ToCamera(cameraState, (float)WindowWidth / WindowHeight);
-
-        keyLight = new PointLight(
-            Position: new Vector3(2, 3, 2),
-            Color: new Vector3(1f, 0.95f, 0.9f),
-            Intensity: 5f);
+        // ─── Camera (derived from UiModel.Default) ───────────────────
+        camera = FreeCameraController.ToCamera(ui.Camera, (float)WindowWidth / WindowHeight);
 
         // ─── Transient resources ─────────────────────────────────────
         sampler = VulkanImage.CreateSampler(gpu);
@@ -285,7 +284,14 @@ public sealed class DeferredDemo : IDemo
                 Outputs: [new PassOutput(hdrColor, ResourceUsage.ColorAttachmentWrite)]),
             new RenderPassDeclaration("Tonemap",
                 Inputs: [new PassInput(hdrColor, ResourceUsage.ShaderRead)],
-                Outputs: [new PassOutput(backbuffer, ResourceUsage.Present)])
+                Outputs: [new PassOutput(backbuffer, ResourceUsage.Present)]),
+            // Ui reads the already-presentable backbuffer and draws the overlay on top.
+            // The overlay render pass (PresentSrcKhr → PresentSrcKhr with LoadOp.Load) owns
+            // its own subpass dependency for write-after-write sync with Tonemap, so no
+            // external barrier is needed — usage stays Present across the boundary.
+            new RenderPassDeclaration("Ui",
+                Inputs: [new PassInput(backbuffer, ResourceUsage.Present)],
+                Outputs: [])
         );
 
         resolvedPasses = RenderGraphCompiler.Compile(passes);
@@ -329,11 +335,11 @@ public sealed class DeferredDemo : IDemo
         // Push constants
         var pc = new GBufferPushConstants
         {
-            Model = meshTransform.Matrix,
+            Model = ui.MeshTransform.Matrix,
             ViewProj = camera.ViewProjectionMatrix,
-            Albedo = material.Albedo,
-            SpecularStrength = material.SpecularStrength,
-            Shininess = material.Shininess,
+            Albedo = ui.Material.Albedo,
+            SpecularStrength = ui.Material.SpecularStrength,
+            Shininess = ui.Material.Shininess,
         };
         api.CmdPushConstants(cb, gbufferPipelineLayout,
             ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
@@ -362,7 +368,7 @@ public sealed class DeferredDemo : IDemo
             GBufferDescriptorSet: gbufferDescSets[gpu.CurrentFrame],
             Extent: gpu.SwapchainExtent);
 
-        var pc = DeferredLighting.BuildPushConstants(camera, keyLight, shadingMode, lightingOnly);
+        var pc = DeferredLighting.BuildPushConstants(camera, ui.KeyLight, ui.Shading, ui.LightingOnly);
         DeferredLighting.Record(api, cb, resources, pc);
 
         timestamps.EndPass(api, cb);
@@ -373,7 +379,7 @@ public sealed class DeferredDemo : IDemo
         timestamps.BeginPass(api, cb, "Tonemap");
 
         // Transition depth image for sampling when in Depth viz mode
-        if (vizMode == VisualizationMode.Depth)
+        if (ui.Viz == VisualizationMode.Depth)
         {
             var depthBarrier = new ImageMemoryBarrier
             {
@@ -416,7 +422,7 @@ public sealed class DeferredDemo : IDemo
         var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
         api.CmdSetScissor(cb, 0, 1, &scissor);
 
-        if (vizMode == VisualizationMode.Final)
+        if (ui.Viz == VisualizationMode.Final)
         {
             api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, tonemapPipeline);
             var ds = tonemapDescSets[gpu.CurrentFrame];
@@ -426,7 +432,7 @@ public sealed class DeferredDemo : IDemo
         {
             api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, debugVizPipeline);
 
-            var ds = vizMode switch
+            var ds = ui.Viz switch
             {
                 VisualizationMode.Position => debugVizPositionSets[gpu.CurrentFrame],
                 VisualizationMode.Normal => debugVizNormalSets[gpu.CurrentFrame],
@@ -439,7 +445,7 @@ public sealed class DeferredDemo : IDemo
 
             var pc = new DebugVizPushConstants
             {
-                Mode = vizMode == VisualizationMode.Depth ? 1 : 0,
+                Mode = ui.Viz == VisualizationMode.Depth ? 1 : 0,
                 NearPlane = camera.NearPlane,
                 FarPlane = camera.FarPlane,
             };
@@ -452,7 +458,7 @@ public sealed class DeferredDemo : IDemo
         api.CmdEndRenderPass(cb);
 
         // Transition depth back for next frame's GBuffer pass
-        if (vizMode == VisualizationMode.Depth)
+        if (ui.Viz == VisualizationMode.Depth)
         {
             var depthBarrier = new ImageMemoryBarrier
             {
@@ -482,37 +488,24 @@ public sealed class DeferredDemo : IDemo
     {
         imgui.NewFrame(window.Width, window.Height, dt);
 
-        ImGui.SetNextWindowPos(new Vector2(10, 10), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 140), ImGuiCond.FirstUseEver);
-        ImGui.Begin("GPU Timings");
+        // Materialize the read-only timestamp spans once per frame so the pure
+        // view doesn't need to know about GpuTimestamps.
+        var stats = new FrameStats(
+            DeltaSeconds: dt,
+            TimestampLabels: timestamps.Labels.ToArray(),
+            TimestampMillis: timestamps.TimingsMs.ToArray(),
+            ResolvedPasses: resolvedPasses);
 
-        var labels = timestamps.Labels;
-        var timings = timestamps.TimingsMs;
-        float total = 0;
-        for (int i = 0; i < timings.Length; i++)
-        {
-            ImGui.Text($"{labels[i]}: {timings[i]:F3} ms");
-            total += (float)timings[i];
-        }
-        ImGui.Separator();
-        ImGui.Text($"Total GPU: {total:F3} ms");
-        ImGui.Text($"Frame: {dt * 1000:F1} ms ({1.0f / dt:F0} FPS)");
+        var viewResult = UiView.Draw(app, ui, stats);
+        ui = UiUpdate.ApplyAll(ui, viewResult.Messages);
+        app = AppUiUpdate.ApplyAll(app, viewResult.AppMessages);
+        lastIntent = viewResult.Intent;
 
-        ImGui.End();
-
-        ImGui.SetNextWindowPos(new Vector2(10, 370), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 60), ImGuiCond.FirstUseEver);
-        if (ImGui.Begin("Visualization"))
-            vizMode = VisualizationDebugMenu.Draw(vizMode);
-        ImGui.End();
-
-        cameraState = FreeCameraDebugMenu.Draw(cameraState);
-        camera = FreeCameraController.ToCamera(cameraState, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
-
-        (keyLight, shadingMode, lightingOnly) = LightingDebugMenu.Draw(keyLight, shadingMode, lightingOnly);
-        (meshTransform, material) = SphereDebugMenu.Draw(meshTransform, material);
-
-        RenderGraphDebugMenu.Draw(resolvedPasses);
+        // UiView may have edited the camera; rebuild the derived Camera before
+        // next frame's recorders run. Aspect uses the live swapchain extent.
+        camera = FreeCameraController.ToCamera(
+            ui.Camera,
+            (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
 
         imgui.RecordCommands(api, cb, overlayRenderPass,
             overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
@@ -575,7 +568,7 @@ public sealed class DeferredDemo : IDemo
             ImageLayout.DepthStencilReadOnlyOptimal);
         debugVizHdrSets = VulkanDescriptors.AllocateSets(gpu, debugVizDescPool, singleDsLayout, frames, hdrView, sampler);
 
-        camera = FreeCameraController.ToCamera(cameraState, (float)w / h);
+        camera = FreeCameraController.ToCamera(ui.Camera, (float)w / h);
     }
 
     unsafe void DestroyTransientResources()

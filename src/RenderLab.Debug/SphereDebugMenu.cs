@@ -1,18 +1,21 @@
 using System.Numerics;
 using ImGuiNET;
 using RenderLab.Scene;
+using RenderLab.Ui;
 
 namespace RenderLab.Debug;
 
 /// <summary>
-/// Two-way debug panel for the demo sphere — its world placement
-/// (<see cref="Transform"/>) and its Blinn-Phong <see cref="MaterialParams"/>
-/// grouped into a single window so the whole object can be tweaked in one place.
+/// View fragment for the demo sphere — placement (<see cref="Transform"/>) and
+/// Blinn-Phong <see cref="MaterialParams"/> in one panel. Dispatches separate
+/// messages for transform and material so the reducer can handle each concern
+/// on its own.
 /// </summary>
 public static class SphereDebugMenu
 {
-    public static (Transform transform, MaterialParams material) Draw(
-        Transform transform, MaterialParams material)
+    public static void Draw(
+        Transform transform, MaterialParams material,
+        Action<UiMsg> dispatch)
     {
         ImGui.SetNextWindowPos(new Vector2(10, 650), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(320, 240), ImGuiCond.FirstUseEver);
@@ -20,7 +23,7 @@ public static class SphereDebugMenu
         if (!ImGui.Begin("Sphere"))
         {
             ImGui.End();
-            return (transform, material);
+            return;
         }
 
         ImGui.SeparatorText("Transform");
@@ -35,9 +38,12 @@ public static class SphereDebugMenu
 
         ImGui.End();
 
-        return (
-            transform with { Position = position, Scale = scale },
-            new MaterialParams(albedo, specStrength, shininess)
-        );
+        var nextTransform = transform with { Position = position, Scale = scale };
+        if (!nextTransform.Equals(transform))
+            dispatch(new UiMsg.UpdateMeshTransform(nextTransform));
+
+        var nextMaterial = new MaterialParams(albedo, specStrength, shininess);
+        if (!nextMaterial.Equals(material))
+            dispatch(new UiMsg.UpdateMaterial(nextMaterial));
     }
 }
