@@ -22,7 +22,7 @@ Implementing rendering papers today requires either:
 - **Raw Vulkan/OpenGL from scratch:** weeks of boilerplate before drawing a triangle. Ceremony-to-insight ratio is brutal.
 - **Existing F#/FP renderers (Aardvark):** correct architectural intuition but locked to F# and their own incremental computation model.
 
-**Gap:** no lightweight, functional-core render testbed exists in modern C# that gives direct GPU control with minimal boilerplate and cross-platform reach (desktop + Android).
+**Gap:** no lightweight, functional-core render testbed exists in modern C# that gives direct GPU control with minimal boilerplate.
 
 ---
 
@@ -33,10 +33,9 @@ Implementing rendering papers today requires either:
 | G1 | **Paper-first workflow** | A new paper implementation requires only adding pure functions that produce render commands. No engine plumbing, no subclassing, no pipeline reconfiguration. |
 | G2 | **Functional Core / Imperative Shell** | All paper logic, pass composition, and render graph compilation are pure functions with no side effects. GPU mutation is confined to a single submission boundary. |
 | G3 | **Vulkan backend via Silk.NET** | Direct Vulkan API access through Silk.NET bindings. No intermediate abstraction that hides pipeline state, synchronization, or resource transitions. |
-| G4 | **Desktop + Android** | Same paper code runs on desktop (Windows/Linux) and Android (Meta Quest, phones). Platform delta is limited to surface creation and device capability queries. |
-| G5 | **wgpu-ready architecture** | The Gpu module boundary is designed so that a wgpu-native backend can be added later without changing any pure layer above it. |
-| G6 | **Zero-allocation command recording** | Render commands are value types recorded into pooled buffers. Frame-to-frame steady state produces no GC pressure. |
-| G7 | **Minimal scope** | No asset pipeline, no editor, no ECS, no physics, no audio. Meshes load from OBJ/glTF. Textures load from KTX2/PNG. That's it. |
+| G4 | **wgpu-ready architecture** | The Gpu module boundary is designed so that a wgpu-native backend can be added later without changing any pure layer above it. |
+| G5 | **Zero-allocation command recording** | Render commands are value types recorded into pooled buffers. Frame-to-frame steady state produces no GC pressure. |
+| G6 | **Minimal scope** | No asset pipeline, no editor, no ECS, no physics, no audio. Meshes load from OBJ/glTF. Textures load from KTX2/PNG. That's it. |
 
 ---
 
@@ -184,14 +183,13 @@ Passed explicitly by `ref` — never global, never static, never ambient.
 | Component | Choice | Rationale |
 |-----------|--------|-----------|
 | Language | C# 13 / .NET 9 | Modern language features (records, pattern matching, static abstracts, spans). Author's primary language. |
-| GPU bindings | Silk.NET Vulkan | Raw Vulkan bindings, no abstraction overhead. Identical API surface on desktop and Android. |
+| GPU bindings | Silk.NET Vulkan | Raw Vulkan bindings, no abstraction overhead. |
 | Windowing (desktop) | Silk.NET GLFW | Flat C-style API, easy to wrap as a poll loop. Avoids OOP event callback patterns. |
-| Windowing (Android) | NativeActivity + ANativeWindow | Minimal Java/Kotlin surface. .NET runs via NativeAOT as a native `.so`. |
 | Shader compilation | glslc / dxc (subprocess) | GLSL/HLSL → SPIR-V. Called at build time or on-demand. No runtime compiler dependency. |
 | Memory allocation | VMA (Vulkan Memory Allocator) via P/Invoke | Industry standard. Small C API surface for interop. |
 | Debug UI | cimgui via P/Invoke | ImGui's C bindings. Flat API. Render through the engine's own Vulkan backend. |
 | Mesh loading | Minimal OBJ parser + cgltf via P/Invoke | Enough to load paper test scenes. Not a full asset pipeline. |
-| Texture loading | KTX2 (libktx P/Invoke) + stb_image | GPU-compressed formats for Android, uncompressed for desktop iteration. |
+| Texture loading | KTX2 (libktx P/Invoke) + stb_image | GPU-compressed formats for distribution, uncompressed for desktop iteration. |
 | Math | System.Numerics or custom | `Vector3`, `Matrix4x4`, `Quaternion` from BCL. Extend if needed. |
 | Functional library | RenderLab.Functional (custom) | `Optional<T>`, `Result<T,E>`, tagged union base, `Pipe`, `Seq` extensions. |
 
@@ -214,15 +212,14 @@ The Gpu module's public surface (handles, descriptors, `Submit`) is designed to 
 |----------|-----|---------|---------|------------|
 | Windows | Vulkan 1.3 | GLFW (`VK_KHR_win32_surface`) | .NET 9 | Self-contained executable |
 | Linux | Vulkan 1.3 | GLFW (`VK_KHR_xcb_surface`) | .NET 9 | Self-contained executable |
-| Android | Vulkan 1.1+ | `VK_KHR_android_surface` | NativeAOT `.so` | APK via .NET Android workload |
 
-### 8.1 Mobile Constraints Record
+### 8.1 Device Capability Record
 
-Papers targeting Android receive a `DeviceCapabilities` record:
+Papers receive a `DeviceCapabilities` record:
 
 ```
 maxDescriptorSets, maxColorAttachments, maxComputeWorkGroupSize,
-supportsGeometryShader (false on mobile), supportsTessellation,
+supportsGeometryShader, supportsTessellation,
 maxSamplersPerStage, subgroupSize, etc.
 ```
 
@@ -240,7 +237,6 @@ RenderLab.sln
 │   │                                 (Silk.NET Vulkan calls live here and only here)
 │   ├── RenderLab.Graph/             RenderPass, RenderGraph compiler, barrier logic
 │   ├── RenderLab.Platform.Desktop/  GLFW window, surface creation, main loop
-│   ├── RenderLab.Platform.Android/  NativeActivity host, surface creation
 │   ├── RenderLab.Scene/             Mesh, Camera, Transform — immutable records
 │   ├── RenderLab.Shaders/           GLSL/HLSL sources, build-time SPIR-V compilation
 │   ├── RenderLab.Debug/             ImGui integration, stats overlay, GPU timers
@@ -276,17 +272,13 @@ RenderLab.sln
 **Deliverable:** GBuffer pass (position, normal, albedo) → lighting pass → tonemap. Loaded OBJ mesh. Debug ImGui overlay showing GPU timings. Lighting pass is a scaffold — a constant ambient term is enough to validate the plumbing.
 **Validates:** Multiple color attachments, descriptor sets, push constants, compute or fullscreen-quad lighting, ImGui integration.
 
-### M4 — Android Port
-**Deliverable:** M3 (deferred baseline) running on an Android device.
-**Validates:** Surface creation, mobile Vulkan path, `DeviceCapabilities` gating, APK packaging. NativeAOT from Windows is blocked today (see `docs/ARCHITECTURE-ANDROID.md`); Mono is the current runtime, NativeAOT is a follow-up.
-
-### M5 — Basic Lighting
+### M4 — Basic Lighting
 **Deliverable:** A fully lit scene in the deferred lighting pass. Sequenced to match the Lighting block of the blog roadmap: Phong/Blinn-Phong surface response, multiple point lights with attenuation and light volumes, then directional lights plus hemispheric ambient. Each step produces a rendered output and a companion blog post.
 **Validates:** The lighting pass as a composition surface — per-light accumulation, material parameters via push constants or SSBOs, and the motivation gap that makes SSAO worth implementing (flat ambient is visibly wrong).
 
-### M6 — First Paper: SSAO
+### M5 — First Paper: SSAO
 **Deliverable:** Implement one concrete paper from the SSAO block. Starting point: Crytek 2007 (Mittring) as the intuition-building baseline, progressing to HBAO (Bavoil & Sainz) and eventually GTAO (Jimenez et al.). Compare output against reference images from each paper.
-**Validates:** The full paper-first workflow. A paper author adds a file, writes pure functions, sees results. The ambient occlusion term plugs into the M5 lighting pass, closing the foundation → lighting → SSAO arc.
+**Validates:** The full paper-first workflow. A paper author adds a file, writes pure functions, sees results. The ambient occlusion term plugs into the M4 lighting pass, closing the foundation → lighting → SSAO arc.
 
 ---
 
@@ -295,7 +287,7 @@ RenderLab.sln
 | Decision | Choice | Alternatives Considered | Reason |
 |----------|--------|------------------------|--------|
 | Single language | C# only | F# for pure layer | Team familiarity. Custom functional library covers the gap. Avoids multi-language build complexity. |
-| Vulkan only | No OpenGL/ES fallback | Silk.NET OpenGL for simpler start | Uniform API. Avoids maintaining two code paths. Android Vulkan coverage is sufficient (Vulkan 1.1 required since Android 10). |
+| Vulkan only | No OpenGL/ES fallback | Silk.NET OpenGL for simpler start | Uniform API. Avoids maintaining two code paths. |
 | No abstraction layer over Vulkan | Papers see Vulkan-level concepts (pipelines, descriptors, barriers) | wgpu-style simplified API | Papers reference Vulkan concepts directly. Abstraction would require constant translation. wgpu backend planned as a future addition, not a replacement. |
 | Value-type commands | `readonly record struct` with tag | Class hierarchy, interface dispatch | Zero allocation. Cache-friendly. Span-compatible. Matches functional union semantics. |
 | Build-time shader compilation | glslc subprocess | Runtime compilation via shaderc | Simpler dependency. Faster startup. SPIR-V embedded or loaded from disk. Runtime variant selection via specialization constants, not recompilation. |
@@ -307,7 +299,6 @@ RenderLab.sln
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| NativeAOT on Android is immature for Vulkan workloads | M5 blocked | Fallback to Mono runtime. Validate early with a minimal Vulkan triangle on Android before M5. |
 | Silk.NET Vulkan bindings have gaps or bugs | Gpu module blocked | Pin Silk.NET version. Patch locally if needed. Bindings are auto-generated from vk.xml — coverage is near-complete. |
 | VMA P/Invoke interop complexity | Gpu module delayed | Use existing community bindings or generate from VMA's C API header. Small surface (~20 functions needed). |
 | Scope creep into engine features | Project stalls | This document is the scope. If it's not in the milestones, it doesn't exist. |
@@ -320,9 +311,8 @@ RenderLab.sln
 The project succeeds when:
 
 1. A new paper implementation requires creating **one file** containing **pure functions** that produce render passes.
-2. The same paper code compiles and runs on **desktop and Android** without `#if` directives in the paper file.
-3. Time from "paper PDF open" to "first incorrect pixels on screen" is **under one evening session**.
-4. The render graph is **fully unit-testable** without a GPU — because it's pure.
+2. Time from "paper PDF open" to "first incorrect pixels on screen" is **under one evening session**.
+3. The render graph is **fully unit-testable** without a GPU — because it's pure.
 
 ---
 

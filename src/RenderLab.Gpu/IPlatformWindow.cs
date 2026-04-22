@@ -4,7 +4,7 @@ namespace RenderLab.Gpu;
 
 /// <summary>
 /// Platform-agnostic window abstraction for Vulkan surface creation and event polling.
-/// Desktop implements via GLFW (Silk.NET.Windowing), Android via NativeActivity + ANativeWindow.
+/// Desktop implements via GLFW (Silk.NET.Windowing).
 /// </summary>
 public interface IPlatformWindow : IDisposable
 {

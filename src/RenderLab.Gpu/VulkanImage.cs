@@ -88,7 +88,7 @@ public static class VulkanImage
 
     /// <summary>
     /// Finds the best supported depth format. Prefers D32_SFLOAT, falls back to
-    /// D24_UNORM_S8_UINT (common on Android/mobile GPUs), then D16_UNORM.
+    /// D24_UNORM_S8_UINT, then D16_UNORM.
     /// </summary>
     public static unsafe Format FindDepthFormat(Vk vk, PhysicalDevice physicalDevice)
     {

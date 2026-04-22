@@ -8,14 +8,7 @@ Without these tools, every paper implementation degrades into a printf-debugging
 
 ## Platform Strategy
 
-**Desktop is the primary development target.** Android is a proof-of-concept until XR papers begin.
-
-Rationale:
-
-- The goal of non-XR papers is learning rendering fundamentals. That is a desktop workflow: edit code, tweak parameters, inspect buffers, compare against reference images.
-- Interactive tooling (free-fly camera, debug menus, buffer visualization) is inherently desktop — it depends on mouse and keyboard. Android would require a completely separate touch input layer with no shared code.
-- The PRD's G4 goal ("same paper code runs on both platforms") applies to *paper code*, not tooling. The architecture already supports this: `Camera` and all pure types live in `RenderLab.Scene` (shared), while input and debug menus live in `RenderLab.Platform.Desktop` and `RenderLab.Debug`. Android's composition root wires a fixed camera. No `#ifdef`s needed.
-- When XR papers begin, Android gets its own input controller (head tracking / controller stick) wired through the same `CameraInput` / `FreeCameraState` abstractions. Same pattern, different input source.
+**Desktop is the sole development target.** Learning rendering fundamentals is a desktop workflow: edit code, tweak parameters, inspect buffers, compare against reference images. Interactive tooling (free-fly camera, debug menus, buffer visualization) depends on mouse and keyboard, so it lives in `RenderLab.Platform.Desktop` and `RenderLab.Debug`. Pure types in `RenderLab.Scene` stay backend-agnostic so a future platform can reuse them.
 
 ## What Was Added
 

@@ -156,8 +156,7 @@ public static class VulkanSwapchain
 
     private static Extent2D ChooseExtent(SurfaceCapabilitiesKHR capabilities, uint width, uint height)
     {
-        // When the caller provides explicit dimensions (e.g. from SurfaceChanged on Android),
-        // prefer those over CurrentExtent which may not yet reflect orientation changes.
+        // When the caller provides explicit dimensions, prefer those over CurrentExtent.
         if (width > 0 && height > 0)
         {
             return new Extent2D

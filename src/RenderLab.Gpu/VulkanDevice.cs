@@ -25,8 +25,7 @@ public static class VulkanDevice
     /// (obtained from <c>DesktopWindow.GetRequiredVulkanExtensions()</c>).</param>
     /// <param name="createSurface">Callback that creates a <see cref="SurfaceKHR"/> from the Vulkan instance.
     /// Called exactly once during initialization.</param>
-    /// <param name="vulkanApiVersion">Vulkan API version to request (e.g. <c>Vk.Version11</c> for Android).
-    /// Defaults to Vulkan 1.3 when 0.</param>
+    /// <param name="vulkanApiVersion">Vulkan API version to request. Defaults to Vulkan 1.3 when 0.</param>
     public static unsafe GpuState Create(Vk vk, string[] requiredExtensions, Func<Instance, SurfaceKHR> createSurface,
         uint vulkanApiVersion = 0, uint initialWidth = 0, uint initialHeight = 0)
     {

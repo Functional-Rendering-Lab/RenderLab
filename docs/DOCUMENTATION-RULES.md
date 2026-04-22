@@ -11,7 +11,6 @@ Every architectural decision, platform port, failed approach, and design trade-o
 | Document | Purpose |
 |----------|---------|
 | `ARCHITECTURE.md` | Module graph, purity boundary, data flow, key abstractions, build commands |
-| `ARCHITECTURE-ANDROID.md` | Android porting journey: what was tried, what failed, why Mono, NativeAOT path forward |
 | `ADDING-A-PAPER.md` | How to add a new paper implementation |
 | `DEMO-ARCHITECTURE.md` | Why and how `RenderLab.App/Demos/` hosts one demo per blog article |
 | `DOCUMENTATION-RULES.md` | This file |
@@ -32,7 +31,7 @@ Every architectural decision, platform port, failed approach, and design trade-o
 ### Format
 
 - Lead with current state, not history. A reader should get the answer in the first paragraph.
-- Use tables for comparisons (desktop vs Android, option A vs option B).
+- Use tables for comparisons (option A vs option B).
 - Code blocks for architecture diagrams (ASCII art, not images).
 - Keep documents updated when the state they describe changes. Stale docs are worse than no docs.
 
@@ -79,7 +78,7 @@ Good (non-obvious contract):
 ```csharp
 /// <summary>
 /// Finds the best supported depth format. Prefers D32_SFLOAT, falls back to
-/// D24_UNORM_S8_UINT (common on Android/mobile GPUs), then D16_UNORM.
+/// D24_UNORM_S8_UINT, then D16_UNORM.
 /// </summary>
 public static Format FindDepthFormat(Vk vk, PhysicalDevice physicalDevice)
 ```

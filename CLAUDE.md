@@ -18,7 +18,6 @@ If a doc exists for the area you are touching, read it before proposing changes.
 | Doc | When to read |
 |---|---|
 | `docs/ARCHITECTURE.md` | Any structural change, new module, new abstraction |
-| `docs/ARCHITECTURE-ANDROID.md` | Anything touching `RenderLab.Platform.Android`, Mono, or NativeAOT |
 | `docs/ADDING-A-PAPER.md` | Adding a new paper implementation |
 | `docs/DEMO-ARCHITECTURE.md` | Why and how `RenderLab.App/Demos/` hosts one demo per article |
 | `docs/QOL-STRATEGY.md` | Tooling, developer experience, debug workflows |
@@ -43,7 +42,6 @@ code/
     RenderLab.Debug             ImGui overlay, GPU timestamps
     RenderLab.Shaders           GLSL / SPIR-V shaders
     RenderLab.Platform.Desktop  GLFW window
-    RenderLab.Platform.Android  Activity + SurfaceView
   tests/
     RenderLab.Functional.Tests
     RenderLab.Graph.Tests
