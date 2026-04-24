@@ -1,3 +1,4 @@
+using System.Numerics;
 using RenderLab.Scene;
 
 namespace RenderLab.Ui;
@@ -18,4 +19,5 @@ public abstract record UiMsg
     public sealed record SetShading(ShadingMode Mode) : UiMsg;
     public sealed record SetLightingOnly(bool On) : UiMsg;
     public sealed record SetViz(VisualizationMode Mode) : UiMsg;
+    public sealed record SetClearColor(Vector3 Color) : UiMsg;
 }

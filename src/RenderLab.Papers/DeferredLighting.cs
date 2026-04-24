@@ -29,9 +29,10 @@ public static class DeferredLighting
         Vk vk,
         CommandBuffer cb,
         LightingPassResources r,
-        LightingPushConstants pc)
+        LightingPushConstants pc,
+        Vector3 clearColor)
     {
-        var clearValue = new ClearValue(new ClearColorValue(0, 0, 0, 1));
+        var clearValue = new ClearValue(new ClearColorValue(clearColor.X, clearColor.Y, clearColor.Z, 1));
 
         var renderPassBegin = new RenderPassBeginInfo
         {

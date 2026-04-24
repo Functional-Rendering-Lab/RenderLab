@@ -1,7 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
 using RenderLab.Scene;
-using RenderLab.Ui;
 
 namespace RenderLab.Ui.ImGui;
 
@@ -23,11 +22,11 @@ public static class LightingDebugMenu
     };
 
     public static void Draw(
-        PointLight light, ShadingMode mode, bool lightingOnly,
+        PointLight light, ShadingMode mode, bool lightingOnly, Vector3 clearColor,
         Action<UiMsg> dispatch)
     {
         ImGui.SetNextWindowPos(new Vector2(10, 440), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(320, 220), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(320, 260), ImGuiCond.FirstUseEver);
 
         if (!ImGui.Begin("Lighting"))
         {
@@ -39,6 +38,9 @@ public static class LightingDebugMenu
         var newMode = (ShadingMode)DebugFields.ComboEdit("Model", (int)mode, ShadingModeNames);
 
         var newLightingOnly = DebugFields.Checkbox("Lighting only (no albedo)", lightingOnly);
+
+        ImGui.SeparatorText("Background");
+        var newClearColor = DebugFields.ColorEdit("Clear color", clearColor);
 
         ImGui.SeparatorText("Light");
         var position = DebugFields.DragVector3("Position", light.Position, 0.05f);
@@ -56,5 +58,8 @@ public static class LightingDebugMenu
 
         if (newLightingOnly != lightingOnly)
             dispatch(new UiMsg.SetLightingOnly(newLightingOnly));
+
+        if (newClearColor != clearColor)
+            dispatch(new UiMsg.SetClearColor(newClearColor));
     }
 }

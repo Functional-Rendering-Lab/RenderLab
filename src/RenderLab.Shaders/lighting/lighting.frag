@@ -24,6 +24,12 @@ void main() {
     vec4 normalSample = texture(gNormal, uv);
     vec4 albedoSample = texture(gAlbedo, uv);
 
+    // GBuffer is cleared to 0 and geometry writes normalized normals (length ≈ 1).
+    // Discard pixels with no geometry so the render pass clear color survives.
+    if (length(normalSample.rgb) < 0.5) {
+        discard;
+    }
+
     vec3 fragPos = texture(gPosition, uv).rgb;
     vec3 normal  = normalize(normalSample.rgb);
     vec3 albedo  = albedoSample.rgb;

@@ -30,7 +30,7 @@ public static class UiView
         if (app.ShowGpuTimings)    DrawGpuTimingsPanel(stats);
         if (app.ShowVisualization) DrawVisualizationPanel(model.Viz, dispatch);
         if (app.ShowCamera)        FreeCameraDebugMenu.Draw(model.Camera, dispatch);
-        if (app.ShowLighting)      LightingDebugMenu.Draw(model.KeyLight, model.Shading, model.LightingOnly, dispatch);
+        if (app.ShowLighting)      LightingDebugMenu.Draw(model.KeyLight, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
         if (app.ShowSphere)        SphereDebugMenu.Draw(model.MeshTransform, model.Material, dispatch);
         if (app.ShowRenderGraph)   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
 

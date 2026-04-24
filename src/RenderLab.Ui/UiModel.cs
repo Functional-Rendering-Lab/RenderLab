@@ -16,7 +16,8 @@ public sealed record UiModel(
     Transform MeshTransform,
     ShadingMode Shading,
     bool LightingOnly,
-    VisualizationMode Viz)
+    VisualizationMode Viz,
+    Vector3 ClearColor)
 {
     public static UiModel Default => new(
         Camera: FreeCameraController.CreateDefault(),
@@ -28,5 +29,6 @@ public sealed record UiModel(
         MeshTransform: Transform.Default,
         Shading: ShadingMode.BlinnPhong,
         LightingOnly: false,
-        Viz: VisualizationMode.Final);
+        Viz: VisualizationMode.Final,
+        ClearColor: Vector3.Zero);
 }

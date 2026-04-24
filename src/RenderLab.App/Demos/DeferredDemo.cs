@@ -381,7 +381,7 @@ public sealed class DeferredDemo : IDemo
             Extent: gpu.SwapchainExtent);
 
         var pc = DeferredLighting.BuildPushConstants(camera, ui.KeyLight, ui.Shading, ui.LightingOnly);
-        DeferredLighting.Record(api, cb, resources, pc);
+        DeferredLighting.Record(api, cb, resources, pc, ui.ClearColor);
 
         timestamps.EndPass(api, cb);
     }
