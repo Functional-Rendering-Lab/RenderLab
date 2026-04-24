@@ -71,9 +71,10 @@ public sealed class VulkanImGui : IDisposable
         var io = ImGui.GetIO();
         io.BackendFlags |= ImGuiBackendFlags.RendererHasVtxOffset;
         io.ConfigFlags  |= ImGuiConfigFlags.DockingEnable;
-        io.FontGlobalScale = 1.5f;
         io.NativePtr->IniFilename = (byte*)Marshal.StringToCoTaskMemUTF8(ResolveIniPath());
 
+        ImGuiTheme.Apply();
+        ImGuiTheme.LoadFont(io);
         imgui.CreateFontAtlas();
         imgui.CreateDescriptorResources();
         imgui.CreatePipeline(renderPass);
