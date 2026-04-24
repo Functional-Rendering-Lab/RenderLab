@@ -22,6 +22,10 @@ public sealed class DesktopWindow : IPlatformWindow
     private Vector2 _prevMousePos;
     private float _scrollAccum;
 
+    // Keyboard state tracking
+    private readonly List<char> _charBuffer = [];
+    private readonly List<(Key key, bool down)> _keyEvents = [];
+
     public int Width => _window.Size.X;
     public int Height => _window.Size.Y;
     public bool IsClosing => _window.IsClosing;
@@ -42,6 +46,14 @@ public sealed class DesktopWindow : IPlatformWindow
             mouse.Scroll += (_, wheel) => _scrollAccum += wheel.Y;
             _mousePos = mouse.Position;
             _prevMousePos = _mousePos;
+        }
+
+        if (_input.Keyboards.Count > 0)
+        {
+            var kb = _input.Keyboards[0];
+            kb.KeyDown += (_, key, _) => _keyEvents.Add((key, true));
+            kb.KeyUp   += (_, key, _) => _keyEvents.Add((key, false));
+            kb.KeyChar += (_, c) => _charBuffer.Add(c);
         }
     }
 
@@ -69,6 +81,20 @@ public sealed class DesktopWindow : IPlatformWindow
     }
 
     public void DoEvents() => _window.DoEvents();
+
+    /// <summary>
+    /// Captures typed characters and key events since the last call, then clears the buffers.
+    /// Call once per frame after <see cref="DoEvents"/>.
+    /// </summary>
+    public KeyboardSnapshot PollKeyboard()
+    {
+        var snapshot = new KeyboardSnapshot(
+            TypedChars: _charBuffer.ToArray(),
+            KeyEvents: _keyEvents.ToArray());
+        _charBuffer.Clear();
+        _keyEvents.Clear();
+        return snapshot;
+    }
 
     /// <summary>
     /// Captures current mouse/keyboard state as an immutable snapshot, then resets per-frame accumulators.

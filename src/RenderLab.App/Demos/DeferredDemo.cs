@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.InteropServices;
 using ImGuiNET;
+using Silk.NET.Input;
 using Silk.NET.Vulkan;
 using RenderLab.Ui.ImGui;
 using RenderLab.Gpu;
@@ -107,6 +108,7 @@ public sealed class DeferredDemo : IDemo
             // didn't capture the mouse. ImGui's IO is populated below so this
             // frame's widgets see the same snapshot.
             var input = window.PollInput();
+            var keyboard = window.PollKeyboard();
 
             if (!lastIntent.WantCaptureMouse)
             {
@@ -129,6 +131,16 @@ public sealed class DeferredDemo : IDemo
             io.MouseDown[1] = input.RightButtonDown;
             io.MouseDown[2] = input.MiddleButtonDown;
             io.MouseWheel = input.ScrollDelta;
+
+            // Feed keyboard state to ImGui so text input and shortcuts work
+            foreach (var c in keyboard.TypedChars)
+                io.AddInputCharacter(c);
+            foreach (var (key, down) in keyboard.KeyEvents)
+            {
+                var imKey = SilkKeyToImGui(key);
+                if (imKey != ImGuiKey.None)
+                    io.AddKeyEvent(imKey, down);
+            }
 
             // Read previous frame's GPU timestamps
             timestamps.ReadResults();
@@ -596,6 +608,62 @@ public sealed class DeferredDemo : IDemo
         VulkanDevice.CreateRenderFinishedSemaphores(gpu);
         CreateTransientResources();
     }
+
+    // ─── Input mapping ───────────────────────────────────────────────
+
+    private static ImGuiKey SilkKeyToImGui(Key key) => key switch
+    {
+        Key.Tab           => ImGuiKey.Tab,
+        Key.Left          => ImGuiKey.LeftArrow,
+        Key.Right         => ImGuiKey.RightArrow,
+        Key.Up            => ImGuiKey.UpArrow,
+        Key.Down          => ImGuiKey.DownArrow,
+        Key.PageUp        => ImGuiKey.PageUp,
+        Key.PageDown      => ImGuiKey.PageDown,
+        Key.Home          => ImGuiKey.Home,
+        Key.End           => ImGuiKey.End,
+        Key.Insert        => ImGuiKey.Insert,
+        Key.Delete        => ImGuiKey.Delete,
+        Key.Backspace     => ImGuiKey.Backspace,
+        Key.Space         => ImGuiKey.Space,
+        Key.Enter         => ImGuiKey.Enter,
+        Key.Escape        => ImGuiKey.Escape,
+        Key.ControlLeft   => ImGuiKey.LeftCtrl,
+        Key.ControlRight  => ImGuiKey.RightCtrl,
+        Key.ShiftLeft     => ImGuiKey.LeftShift,
+        Key.ShiftRight    => ImGuiKey.RightShift,
+        Key.AltLeft       => ImGuiKey.LeftAlt,
+        Key.AltRight      => ImGuiKey.RightAlt,
+        Key.SuperLeft     => ImGuiKey.LeftSuper,
+        Key.SuperRight    => ImGuiKey.RightSuper,
+        Key.A             => ImGuiKey.A,
+        Key.B             => ImGuiKey.B,
+        Key.C             => ImGuiKey.C,
+        Key.D             => ImGuiKey.D,
+        Key.E             => ImGuiKey.E,
+        Key.F             => ImGuiKey.F,
+        Key.G             => ImGuiKey.G,
+        Key.H             => ImGuiKey.H,
+        Key.I             => ImGuiKey.I,
+        Key.J             => ImGuiKey.J,
+        Key.K             => ImGuiKey.K,
+        Key.L             => ImGuiKey.L,
+        Key.M             => ImGuiKey.M,
+        Key.N             => ImGuiKey.N,
+        Key.O             => ImGuiKey.O,
+        Key.P             => ImGuiKey.P,
+        Key.Q             => ImGuiKey.Q,
+        Key.R             => ImGuiKey.R,
+        Key.S             => ImGuiKey.S,
+        Key.T             => ImGuiKey.T,
+        Key.U             => ImGuiKey.U,
+        Key.V             => ImGuiKey.V,
+        Key.W             => ImGuiKey.W,
+        Key.X             => ImGuiKey.X,
+        Key.Y             => ImGuiKey.Y,
+        Key.Z             => ImGuiKey.Z,
+        _                 => ImGuiKey.None,
+    };
 
     // ─── Cleanup ─────────────────────────────────────────────────────
 

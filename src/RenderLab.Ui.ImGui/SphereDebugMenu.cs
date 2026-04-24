@@ -30,13 +30,12 @@ public static class SphereDebugMenu
 
         ImGui.SeparatorText("Transform");
         var position = DebugFields.DragVector3("Position", transform.Position, 0.05f);
-        var scale = DebugFields.SliderFloat("Scale", transform.Scale, 0.1f, 5f);
+        var scale = DebugFields.DragFloat("Scale", transform.Scale, 0.02f, 0.1f, 5f);
 
         ImGui.SeparatorText("Material");
         var albedo = DebugFields.ColorEdit("Albedo", material.Albedo);
-        var specStrength = DebugFields.SliderFloat("Spec Strength", material.SpecularStrength, 0f, 1f);
-        var shininess = DebugFields.SliderFloat("Shininess", material.Shininess, 1f, MaterialParams.ShininessRange,
-            flags: ImGuiSliderFlags.Logarithmic);
+        var specStrength = DebugFields.DragFloat("Spec Strength", material.SpecularStrength, 0.005f, 0f, 1f);
+        var shininess = DebugFields.DragFloat("Shininess", material.Shininess, 1f, 1f, MaterialParams.ShininessRange);
 
         ImGui.End();
 
