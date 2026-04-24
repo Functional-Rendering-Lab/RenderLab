@@ -1,9 +1,6 @@
-using ImGuiNET;
 using RenderLab.Ui;
 
 namespace RenderLab.Ui.ImGui;
-
-using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
 /// View fragment for the GBuffer visualization selector. Emits
@@ -16,9 +13,7 @@ public static class VisualizationDebugMenu
 
     public static void Draw(VisualizationMode current, Action<UiMsg> dispatch)
     {
-        int index = (int)current;
-        ImGui.Combo("Buffer", ref index, ModeNames, ModeNames.Length);
-        var next = (VisualizationMode)index;
+        var next = (VisualizationMode)DebugFields.ComboEdit("Buffer", (int)current, ModeNames);
         if (next != current)
             dispatch(new UiMsg.SetViz(next));
     }

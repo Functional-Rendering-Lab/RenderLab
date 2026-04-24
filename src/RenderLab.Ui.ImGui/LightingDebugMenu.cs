@@ -36,9 +36,7 @@ public static class LightingDebugMenu
         }
 
         ImGui.SeparatorText("Shading");
-        int modeIndex = (int)mode;
-        ImGui.Combo("Model", ref modeIndex, ShadingModeNames, ShadingModeNames.Length);
-        var newMode = (ShadingMode)modeIndex;
+        var newMode = (ShadingMode)DebugFields.ComboEdit("Model", (int)mode, ShadingModeNames);
 
         var newLightingOnly = DebugFields.Checkbox("Lighting only (no albedo)", lightingOnly);
 
