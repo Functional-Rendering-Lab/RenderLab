@@ -27,12 +27,12 @@ public static class UiView
         AppMenuBar.Draw(app, dispatchApp);
         ImGui.DockSpaceOverViewport(0, ImGui.GetMainViewport(), ImGuiDockNodeFlags.PassthruCentralNode);
 
-        if (app.ShowGpuTimings)    DrawGpuTimingsPanel(stats);
-        if (app.ShowVisualization) DrawVisualizationPanel(model.Viz, dispatch);
-        if (app.ShowCamera)        FreeCameraDebugMenu.Draw(model.Camera, dispatch);
-        if (app.ShowLighting)      LightingDebugMenu.Draw(model.KeyLight, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
-        if (app.ShowSphere)        SphereDebugMenu.Draw(model.MeshTransform, model.Material, dispatch);
-        if (app.ShowRenderGraph)   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
+        if (app.IsPanelVisible(PanelId.GpuTimings))    DrawGpuTimingsPanel(stats);
+        if (app.IsPanelVisible(PanelId.Visualization)) DrawVisualizationPanel(model.Viz, dispatch);
+        if (app.IsPanelVisible(PanelId.Camera))        FreeCameraDebugMenu.Draw(model.Camera, dispatch);
+        if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.KeyLight, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
+        if (app.IsPanelVisible(PanelId.Sphere))        SphereDebugMenu.Draw(model.MeshTransform, model.Material, dispatch);
+        if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
 
         var io = ImGui.GetIO();
         var intent = new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard);

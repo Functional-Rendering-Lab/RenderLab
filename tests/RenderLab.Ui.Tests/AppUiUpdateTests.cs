@@ -26,28 +26,30 @@ public class AppUiUpdateTests
     {
         var start = Fresh();
         var hidden = AppUiUpdate.Apply(start, new AppUiMsg.TogglePanel(PanelId.Camera));
-        Assert.False(hidden.ShowCamera);
+        Assert.False(hidden.IsPanelVisible(PanelId.Camera));
         var shown = AppUiUpdate.Apply(hidden, new AppUiMsg.TogglePanel(PanelId.Camera));
-        Assert.True(shown.ShowCamera);
+        Assert.True(shown.IsPanelVisible(PanelId.Camera));
     }
 
     [Fact]
     public void SetPanelVisible_independentOfOtherPanels()
     {
         var m = AppUiUpdate.Apply(Fresh(), new AppUiMsg.SetPanelVisible(PanelId.Sphere, false));
-        Assert.False(m.ShowSphere);
-        Assert.True(m.ShowCamera);
-        Assert.True(m.ShowLighting);
+        Assert.False(m.IsPanelVisible(PanelId.Sphere));
+        Assert.True(m.IsPanelVisible(PanelId.Camera));
+        Assert.True(m.IsPanelVisible(PanelId.Lighting));
     }
 
     [Fact]
     public void HandOffTo_preservesPanelVisibilityAndClearsRequest()
     {
-        var m = Fresh() with { ShowGpuTimings = false, RequestedDemo = DemoId.GBuffer };
+        var m = Fresh()
+            .WithPanelVisible(PanelId.GpuTimings, false)
+            with { RequestedDemo = DemoId.GBuffer };
         var next = m.HandOffTo(DemoId.GBuffer);
         Assert.Equal(DemoId.GBuffer, next.CurrentDemo);
         Assert.Null(next.RequestedDemo);
-        Assert.False(next.ShowGpuTimings);
+        Assert.False(next.IsPanelVisible(PanelId.GpuTimings));
     }
 
     [Fact]
@@ -60,8 +62,8 @@ public class AppUiUpdateTests
             new AppUiMsg.RequestSwitchDemo(DemoId.GBuffer),
         };
         var final = AppUiUpdate.ApplyAll(Fresh(), msgs);
-        Assert.False(final.ShowCamera);
-        Assert.False(final.ShowLighting);
+        Assert.False(final.IsPanelVisible(PanelId.Camera));
+        Assert.False(final.IsPanelVisible(PanelId.Lighting));
         Assert.Equal(DemoId.GBuffer, final.RequestedDemo);
     }
 }

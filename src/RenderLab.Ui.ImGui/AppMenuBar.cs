@@ -25,12 +25,12 @@ public static class AppMenuBar
 
         if (includeViewMenu && ImGui.BeginMenu("View"))
         {
-            ViewToggle("GPU Timings",   PanelId.GpuTimings,    app.ShowGpuTimings,    dispatch);
-            ViewToggle("Visualization", PanelId.Visualization, app.ShowVisualization, dispatch);
-            ViewToggle("Camera",        PanelId.Camera,        app.ShowCamera,        dispatch);
-            ViewToggle("Lighting",      PanelId.Lighting,      app.ShowLighting,      dispatch);
-            ViewToggle("Sphere",        PanelId.Sphere,        app.ShowSphere,        dispatch);
-            ViewToggle("Render Graph",  PanelId.RenderGraph,   app.ShowRenderGraph,   dispatch);
+            ViewToggle("GPU Timings",   PanelId.GpuTimings,    app, dispatch);
+            ViewToggle("Visualization", PanelId.Visualization, app, dispatch);
+            ViewToggle("Camera",        PanelId.Camera,        app, dispatch);
+            ViewToggle("Lighting",      PanelId.Lighting,      app, dispatch);
+            ViewToggle("Sphere",        PanelId.Sphere,        app, dispatch);
+            ViewToggle("Render Graph",  PanelId.RenderGraph,   app, dispatch);
             ImGui.EndMenu();
         }
 
@@ -45,9 +45,9 @@ public static class AppMenuBar
         ImGui.EndMainMenuBar();
     }
 
-    private static void ViewToggle(string label, PanelId id, bool visible, Action<AppUiMsg> dispatch)
+    private static void ViewToggle(string label, PanelId id, AppUiModel app, Action<AppUiMsg> dispatch)
     {
-        bool next = visible;
+        bool next = app.IsPanelVisible(id);
         if (ImGui.MenuItem(label, "", ref next))
             dispatch(new AppUiMsg.SetPanelVisible(id, next));
     }

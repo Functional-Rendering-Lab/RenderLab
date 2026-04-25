@@ -1,32 +1,28 @@
+using System.Collections.Immutable;
+
 namespace RenderLab.Ui;
 
 /// <summary>
 /// App-shell state, separate from the per-demo <see cref="UiModel"/>. Holds
 /// which demo is running, which demo the user wants to switch to next (one-shot
-/// signal consumed by the outer loop), panel visibility, and an exit request.
-/// Preserved across demo switches so the user's panel layout follows them.
+/// signal consumed by the outer loop), the set of visible debug panels, and an
+/// exit request. Panel visibility is preserved across demo switches so the
+/// user's layout follows them.
 /// </summary>
 public sealed record AppUiModel(
     DemoId CurrentDemo,
     DemoId? RequestedDemo,
     bool RequestedExit,
-    bool ShowGpuTimings,
-    bool ShowVisualization,
-    bool ShowCamera,
-    bool ShowLighting,
-    bool ShowSphere,
-    bool ShowRenderGraph)
+    ImmutableHashSet<PanelId> VisiblePanels)
 {
     public static AppUiModel Default(DemoId demo) => new(
         CurrentDemo: demo,
         RequestedDemo: null,
         RequestedExit: false,
-        ShowGpuTimings: true,
-        ShowVisualization: true,
-        ShowCamera: true,
-        ShowLighting: true,
-        ShowSphere: true,
-        ShowRenderGraph: true);
+        VisiblePanels: AllPanels);
+
+    private static readonly ImmutableHashSet<PanelId> AllPanels =
+        ImmutableHashSet.CreateRange(Enum.GetValues<PanelId>());
 
     /// <summary>
     /// Copy this model into the next demo's starting state: clears the one-shot
@@ -39,14 +35,10 @@ public sealed record AppUiModel(
         RequestedDemo = null,
     };
 
-    public bool IsPanelVisible(PanelId id) => id switch
+    public bool IsPanelVisible(PanelId id) => VisiblePanels.Contains(id);
+
+    public AppUiModel WithPanelVisible(PanelId id, bool visible) => this with
     {
-        PanelId.GpuTimings    => ShowGpuTimings,
-        PanelId.Visualization => ShowVisualization,
-        PanelId.Camera        => ShowCamera,
-        PanelId.Lighting      => ShowLighting,
-        PanelId.Sphere        => ShowSphere,
-        PanelId.RenderGraph   => ShowRenderGraph,
-        _                     => false,
+        VisiblePanels = visible ? VisiblePanels.Add(id) : VisiblePanels.Remove(id),
     };
 }
