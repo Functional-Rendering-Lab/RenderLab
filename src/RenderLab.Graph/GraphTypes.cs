@@ -49,6 +49,29 @@ public abstract record GraphError
     {
         public override string ToString() => $"InvalidResourceName(\"{Attempted}\")";
     }
+
+    /// <summary>The pass graph contains a cycle. <see cref="RemainingPasses"/> are the
+    /// passes that could not be ordered (their dependencies are mutually entangled).</summary>
+    public sealed record Cycle(ImmutableArray<string> RemainingPasses) : GraphError
+    {
+        public override string ToString() =>
+            $"Cycle(remaining: [{string.Join(", ", RemainingPasses)}])";
+    }
+
+    /// <summary>Two passes declare a write to the same <see cref="ResourceName"/>.
+    /// Render-graph resources have a single writer.</summary>
+    public sealed record DuplicateWriter(ResourceName Resource, string FirstPass, string SecondPass) : GraphError
+    {
+        public override string ToString() =>
+            $"DuplicateWriter({Resource}: {FirstPass} and {SecondPass})";
+    }
+
+    /// <summary>A pass declares an input that no other pass writes.</summary>
+    public sealed record UnknownResource(ResourceName Resource, string ConsumerPass) : GraphError
+    {
+        public override string ToString() =>
+            $"UnknownResource({Resource} read by {ConsumerPass})";
+    }
 }
 
 /// <summary>

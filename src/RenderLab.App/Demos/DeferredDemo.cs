@@ -306,7 +306,9 @@ public sealed class DeferredDemo : IDemo
                 Outputs: [])
         );
 
-        resolvedPasses = RenderGraphCompiler.Compile(passes);
+        resolvedPasses = RenderGraphCompiler.Compile(passes).Match(
+            ok: r => r,
+            error: e => throw new InvalidOperationException($"Render graph compile failed: {e}"));
 
         Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
         Console.WriteLine($"  Passes: {string.Join(" -> ", resolvedPasses.Select(p => p.Declaration.Name))}");

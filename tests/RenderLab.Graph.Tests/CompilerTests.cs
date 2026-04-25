@@ -1,10 +1,21 @@
 using System.Collections.Immutable;
+using RenderLab.Functional;
 using RenderLab.Graph;
 
 namespace RenderLab.Graph.Tests;
 
 public class CompilerTests
 {
+    private static ImmutableArray<ResolvedPass> Ok(Result<ImmutableArray<ResolvedPass>, GraphError> r) =>
+        r.Match(
+            ok: x => x,
+            error: e => throw new Xunit.Sdk.XunitException($"Expected Ok, got {e}"));
+
+    private static GraphError Err(Result<ImmutableArray<ResolvedPass>, GraphError> r) =>
+        r.Match(
+            ok: _ => throw new Xunit.Sdk.XunitException("Expected Error, got Ok"),
+            error: e => e);
+
     [Fact]
     public void SinglePass_NoBarriers()
     {
@@ -13,7 +24,7 @@ public class CompilerTests
                 Inputs: [],
                 Outputs: [new PassOutput(ResourceName.Of("Color"), ResourceUsage.ColorAttachmentWrite)]));
 
-        var resolved = RenderGraphCompiler.Compile(passes);
+        var resolved = Ok(RenderGraphCompiler.Compile(passes));
 
         Assert.Single(resolved);
         Assert.Equal("Only", resolved[0].Declaration.Name);
@@ -32,16 +43,14 @@ public class CompilerTests
                 Inputs: [new PassInput(offscreen, ResourceUsage.ShaderRead)],
                 Outputs: [new PassOutput(ResourceName.Of("Backbuffer"), ResourceUsage.Present)]));
 
-        var resolved = RenderGraphCompiler.Compile(passes);
+        var resolved = Ok(RenderGraphCompiler.Compile(passes));
 
         Assert.Equal(2, resolved.Length);
         Assert.Equal("Geometry", resolved[0].Declaration.Name);
         Assert.Equal("PostProcess", resolved[1].Declaration.Name);
 
-        // Geometry has no barriers
         Assert.Empty(resolved[0].BarriersBefore);
 
-        // PostProcess has one barrier: OffscreenColor transitions from write to read
         Assert.Single(resolved[1].BarriersBefore);
         var barrier = resolved[1].BarriersBefore[0];
         Assert.Equal(offscreen, barrier.Resource);
@@ -53,7 +62,6 @@ public class CompilerTests
     public void ReversedDeclaration_StillCorrectOrder()
     {
         var offscreen = ResourceName.Of("OffscreenColor");
-        // Declare PostProcess first, Geometry second — compiler should sort correctly
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("PostProcess",
                 Inputs: [new PassInput(offscreen, ResourceUsage.ShaderRead)],
@@ -62,7 +70,7 @@ public class CompilerTests
                 Inputs: [],
                 Outputs: [new PassOutput(offscreen, ResourceUsage.ColorAttachmentWrite)]));
 
-        var resolved = RenderGraphCompiler.Compile(passes);
+        var resolved = Ok(RenderGraphCompiler.Compile(passes));
 
         Assert.Equal(2, resolved.Length);
         Assert.Equal("Geometry", resolved[0].Declaration.Name);
@@ -80,7 +88,7 @@ public class CompilerTests
                 Inputs: [],
                 Outputs: [new PassOutput(ResourceName.Of("Y"), ResourceUsage.ColorAttachmentWrite)]));
 
-        var resolved = RenderGraphCompiler.Compile(passes);
+        var resolved = Ok(RenderGraphCompiler.Compile(passes));
 
         Assert.Equal(2, resolved.Length);
         var names = resolved.Select(r => r.Declaration.Name).ToHashSet();
@@ -89,7 +97,7 @@ public class CompilerTests
     }
 
     [Fact]
-    public void CycleDetection_Throws()
+    public void Cycle_ReturnsCycleError()
     {
         var x = ResourceName.Of("X");
         var y = ResourceName.Of("Y");
@@ -101,13 +109,50 @@ public class CompilerTests
                 Inputs: [new PassInput(x, ResourceUsage.ShaderRead)],
                 Outputs: [new PassOutput(y, ResourceUsage.ColorAttachmentWrite)]));
 
-        Assert.Throws<InvalidOperationException>(() => RenderGraphCompiler.Compile(passes));
+        var error = Err(RenderGraphCompiler.Compile(passes));
+        var cycle = Assert.IsType<GraphError.Cycle>(error);
+        Assert.Equal(2, cycle.RemainingPasses.Length);
+        Assert.Contains("A", cycle.RemainingPasses);
+        Assert.Contains("B", cycle.RemainingPasses);
+    }
+
+    [Fact]
+    public void DuplicateWriter_ReturnsDuplicateWriterError()
+    {
+        var x = ResourceName.Of("X");
+        var passes = ImmutableArray.Create(
+            new RenderPassDeclaration("A",
+                Inputs: [],
+                Outputs: [new PassOutput(x, ResourceUsage.ColorAttachmentWrite)]),
+            new RenderPassDeclaration("B",
+                Inputs: [],
+                Outputs: [new PassOutput(x, ResourceUsage.ColorAttachmentWrite)]));
+
+        var error = Err(RenderGraphCompiler.Compile(passes));
+        var dup = Assert.IsType<GraphError.DuplicateWriter>(error);
+        Assert.Equal(x, dup.Resource);
+        Assert.Equal("A", dup.FirstPass);
+        Assert.Equal("B", dup.SecondPass);
+    }
+
+    [Fact]
+    public void InputWithoutWriter_ReturnsUnknownResourceError()
+    {
+        var ghost = ResourceName.Of("Ghost");
+        var passes = ImmutableArray.Create(
+            new RenderPassDeclaration("Reader",
+                Inputs: [new PassInput(ghost, ResourceUsage.ShaderRead)],
+                Outputs: [new PassOutput(ResourceName.Of("Out"), ResourceUsage.Present)]));
+
+        var error = Err(RenderGraphCompiler.Compile(passes));
+        var unknown = Assert.IsType<GraphError.UnknownResource>(error);
+        Assert.Equal(ghost, unknown.Resource);
+        Assert.Equal("Reader", unknown.ConsumerPass);
     }
 
     [Fact]
     public void DiamondDependency_CorrectToposortAndBarriers()
     {
-        // A writes X, B reads X writes Y, C reads X writes Z, D reads Y and Z
         var x = ResourceName.Of("X");
         var y = ResourceName.Of("Y");
         var z = ResourceName.Of("Z");
@@ -125,19 +170,15 @@ public class CompilerTests
                 Inputs: [new PassInput(y, ResourceUsage.ShaderRead), new PassInput(z, ResourceUsage.ShaderRead)],
                 Outputs: [new PassOutput(ResourceName.Of("Final"), ResourceUsage.Present)]));
 
-        var resolved = RenderGraphCompiler.Compile(passes);
+        var resolved = Ok(RenderGraphCompiler.Compile(passes));
 
         Assert.Equal(4, resolved.Length);
-
-        // A must come first
         Assert.Equal("A", resolved[0].Declaration.Name);
 
-        // B and C must come before D
         var names = resolved.Select(r => r.Declaration.Name).ToList();
         Assert.True(names.IndexOf("B") < names.IndexOf("D"));
         Assert.True(names.IndexOf("C") < names.IndexOf("D"));
 
-        // D should have barriers for Y and Z (both transition from write to read)
         var dPass = resolved.First(r => r.Declaration.Name == "D");
         Assert.Equal(2, dPass.BarriersBefore.Length);
     }

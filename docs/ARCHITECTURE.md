@@ -52,7 +52,8 @@ Pass declarations (Program.cs) ...................... PURE
   v
 RenderGraphCompiler.Compile() ...................... PURE
   Topological sort (Kahn's algorithm) + barrier insertion
-  Output: ImmutableArray<ResolvedPass>
+  Output: Result<ImmutableArray<ResolvedPass>, GraphError>
+  Errors: Cycle, DuplicateWriter, UnknownResource, InvalidResourceName
   |
   v
 VulkanGraphExecutor.Execute() ...................... IMPURE BOUNDARY

@@ -1,4 +1,5 @@
 using System.Collections.Immutable;
+using RenderLab.Functional;
 
 namespace RenderLab.Graph;
 
@@ -13,28 +14,57 @@ public static class RenderGraphCompiler
     /// <summary>
     /// Compiles an unordered set of pass declarations into a topologically sorted sequence
     /// with barriers computed. This is a pure function — no GPU state, no side effects.
+    /// Returns <see cref="GraphError"/> for malformed graphs (cycles, duplicate writers,
+    /// inputs referencing unknown resources).
     /// </summary>
     /// <param name="passes">Unordered pass declarations. Each pass declares its resource I/O.</param>
-    /// <returns>Passes in execution order, each annotated with barriers to insert before it runs.</returns>
-    /// <exception cref="InvalidOperationException">Thrown if the pass graph contains a cycle.</exception>
-    public static ImmutableArray<ResolvedPass> Compile(ImmutableArray<RenderPassDeclaration> passes)
-    {
-        var sorted = TopologicalSort(passes);
-        return InsertBarriers(sorted);
-    }
-
-    private static ImmutableArray<RenderPassDeclaration> TopologicalSort(
+    /// <returns>Either the resolved passes in execution order, or a <see cref="GraphError"/>.</returns>
+    public static Result<ImmutableArray<ResolvedPass>, GraphError> Compile(
         ImmutableArray<RenderPassDeclaration> passes)
     {
-        // Build: which resources does each pass write?
+        return BuildWriterMap(passes)
+            .Bind(writerByResource => ValidateInputsHaveWriters(passes, writerByResource))
+            .Bind(writerByResource => TopologicalSort(passes, writerByResource))
+            .Map(InsertBarriers);
+    }
+
+    private static Result<Dictionary<ResourceName, string>, GraphError> BuildWriterMap(
+        ImmutableArray<RenderPassDeclaration> passes)
+    {
         var writerByResource = new Dictionary<ResourceName, string>();
         foreach (var pass in passes)
         {
             foreach (var output in pass.Outputs)
+            {
+                if (writerByResource.TryGetValue(output.Resource, out var existing))
+                    return Result<Dictionary<ResourceName, string>, GraphError>.Error(
+                        new GraphError.DuplicateWriter(output.Resource, existing, pass.Name));
                 writerByResource[output.Resource] = pass.Name;
+            }
         }
+        return Result<Dictionary<ResourceName, string>, GraphError>.Ok(writerByResource);
+    }
 
-        // Build adjacency: pass depends on writer of each input resource
+    private static Result<Dictionary<ResourceName, string>, GraphError> ValidateInputsHaveWriters(
+        ImmutableArray<RenderPassDeclaration> passes,
+        Dictionary<ResourceName, string> writerByResource)
+    {
+        foreach (var pass in passes)
+        {
+            foreach (var input in pass.Inputs)
+            {
+                if (!writerByResource.ContainsKey(input.Resource))
+                    return Result<Dictionary<ResourceName, string>, GraphError>.Error(
+                        new GraphError.UnknownResource(input.Resource, pass.Name));
+            }
+        }
+        return Result<Dictionary<ResourceName, string>, GraphError>.Ok(writerByResource);
+    }
+
+    private static Result<ImmutableArray<RenderPassDeclaration>, GraphError> TopologicalSort(
+        ImmutableArray<RenderPassDeclaration> passes,
+        Dictionary<ResourceName, string> writerByResource)
+    {
         var passByName = new Dictionary<string, RenderPassDeclaration>();
         var inDegree = new Dictionary<string, int>();
         var dependents = new Dictionary<string, List<string>>();
@@ -59,7 +89,6 @@ public static class RenderGraphCompiler
             }
         }
 
-        // Kahn's algorithm
         var queue = new Queue<string>();
         foreach (var (name, degree) in inDegree)
         {
@@ -81,16 +110,22 @@ public static class RenderGraphCompiler
         }
 
         if (sorted.Count != passes.Length)
-            throw new InvalidOperationException(
-                "Render graph contains a cycle — passes cannot be ordered.");
+        {
+            var sortedNames = sorted.Select(p => p.Name).ToHashSet();
+            var remaining = passes
+                .Select(p => p.Name)
+                .Where(n => !sortedNames.Contains(n))
+                .ToImmutableArray();
+            return Result<ImmutableArray<RenderPassDeclaration>, GraphError>.Error(
+                new GraphError.Cycle(remaining));
+        }
 
-        return sorted.ToImmutable();
+        return Result<ImmutableArray<RenderPassDeclaration>, GraphError>.Ok(sorted.ToImmutable());
     }
 
     private static ImmutableArray<ResolvedPass> InsertBarriers(
         ImmutableArray<RenderPassDeclaration> sortedPasses)
     {
-        // Track last known usage of each resource
         var lastUsage = new Dictionary<ResourceName, ResourceUsage>();
         var resolved = ImmutableArray.CreateBuilder<ResolvedPass>(sortedPasses.Length);
 
@@ -98,7 +133,6 @@ public static class RenderGraphCompiler
         {
             var barriers = ImmutableArray.CreateBuilder<BarrierDesc>();
 
-            // Check inputs — if resource was last used differently, insert barrier
             foreach (var input in pass.Inputs)
             {
                 if (lastUsage.TryGetValue(input.Resource, out var prevUsage) &&
@@ -108,7 +142,6 @@ public static class RenderGraphCompiler
                 }
             }
 
-            // Check outputs — if resource was last used differently, insert barrier
             foreach (var output in pass.Outputs)
             {
                 if (lastUsage.TryGetValue(output.Resource, out var prevUsage) &&
@@ -120,7 +153,6 @@ public static class RenderGraphCompiler
 
             resolved.Add(new ResolvedPass(pass, barriers.ToImmutable()));
 
-            // Update last usage
             foreach (var input in pass.Inputs)
                 lastUsage[input.Resource] = input.Usage;
             foreach (var output in pass.Outputs)
