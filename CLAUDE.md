@@ -46,6 +46,8 @@ code/
   tests/
     RenderLab.Functional.Tests
     RenderLab.Graph.Tests
+    RenderLab.Scene.Tests
+    RenderLab.Ui.Tests
 ```
 
 ## Tooling

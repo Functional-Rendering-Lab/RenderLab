@@ -35,6 +35,7 @@ void main() {
     vec3 albedo  = albedoSample.rgb;
 
     // Material params packed into the GBuffer alpha channels by gbuffer.frag.
+    // Canonical packing: RenderLab.Scene/MaterialPacking.cs (keep in sync).
     float specularStrength = normalSample.a;
     float shininess = albedoSample.a * SHININESS_RANGE;
 

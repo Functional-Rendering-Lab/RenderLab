@@ -7,6 +7,7 @@ layout(location = 2) in vec2 uv;
 // RT0 = worldPos.xyz | unused
 // RT1 = worldNormal.xyz | specularStrength (0..1)
 // RT2 = albedo.rgb | shininess / 256 (lighting.frag rescales)
+// Canonical packing: RenderLab.Scene/MaterialPacking.cs (keep in sync).
 layout(location = 0) out vec4 outPosition;
 layout(location = 1) out vec4 outNormal;
 layout(location = 2) out vec4 outAlbedo;
