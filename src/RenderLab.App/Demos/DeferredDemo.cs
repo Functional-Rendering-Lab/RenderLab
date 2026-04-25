@@ -273,11 +273,11 @@ public sealed class DeferredDemo : IDemo
         timestamps = GpuTimestamps.Create(gpu, 4);
 
         // ─── Compile render graph (pure) ─────────────────────────────
-        gPosition = new ResourceName("GBuffer.Position");
-        gNormal = new ResourceName("GBuffer.Normal");
-        gAlbedo = new ResourceName("GBuffer.Albedo");
-        hdrColor = new ResourceName("HDR");
-        backbuffer = new ResourceName("Backbuffer");
+        gPosition = ResourceName.Of("GBuffer.Position");
+        gNormal = ResourceName.Of("GBuffer.Normal");
+        gAlbedo = ResourceName.Of("GBuffer.Albedo");
+        hdrColor = ResourceName.Of("HDR");
+        backbuffer = ResourceName.Of("Backbuffer");
 
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("GBuffer",

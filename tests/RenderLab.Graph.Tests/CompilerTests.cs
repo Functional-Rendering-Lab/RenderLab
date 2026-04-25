@@ -11,7 +11,7 @@ public class CompilerTests
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("Only",
                 Inputs: [],
-                Outputs: [new PassOutput(new ResourceName("Color"), ResourceUsage.ColorAttachmentWrite)]));
+                Outputs: [new PassOutput(ResourceName.Of("Color"), ResourceUsage.ColorAttachmentWrite)]));
 
         var resolved = RenderGraphCompiler.Compile(passes);
 
@@ -23,14 +23,14 @@ public class CompilerTests
     [Fact]
     public void TwoPassDependency_CorrectOrderAndBarrier()
     {
-        var offscreen = new ResourceName("OffscreenColor");
+        var offscreen = ResourceName.Of("OffscreenColor");
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("Geometry",
                 Inputs: [],
                 Outputs: [new PassOutput(offscreen, ResourceUsage.ColorAttachmentWrite)]),
             new RenderPassDeclaration("PostProcess",
                 Inputs: [new PassInput(offscreen, ResourceUsage.ShaderRead)],
-                Outputs: [new PassOutput(new ResourceName("Backbuffer"), ResourceUsage.Present)]));
+                Outputs: [new PassOutput(ResourceName.Of("Backbuffer"), ResourceUsage.Present)]));
 
         var resolved = RenderGraphCompiler.Compile(passes);
 
@@ -52,12 +52,12 @@ public class CompilerTests
     [Fact]
     public void ReversedDeclaration_StillCorrectOrder()
     {
-        var offscreen = new ResourceName("OffscreenColor");
+        var offscreen = ResourceName.Of("OffscreenColor");
         // Declare PostProcess first, Geometry second — compiler should sort correctly
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("PostProcess",
                 Inputs: [new PassInput(offscreen, ResourceUsage.ShaderRead)],
-                Outputs: [new PassOutput(new ResourceName("Backbuffer"), ResourceUsage.Present)]),
+                Outputs: [new PassOutput(ResourceName.Of("Backbuffer"), ResourceUsage.Present)]),
             new RenderPassDeclaration("Geometry",
                 Inputs: [],
                 Outputs: [new PassOutput(offscreen, ResourceUsage.ColorAttachmentWrite)]));
@@ -75,10 +75,10 @@ public class CompilerTests
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("A",
                 Inputs: [],
-                Outputs: [new PassOutput(new ResourceName("X"), ResourceUsage.ColorAttachmentWrite)]),
+                Outputs: [new PassOutput(ResourceName.Of("X"), ResourceUsage.ColorAttachmentWrite)]),
             new RenderPassDeclaration("B",
                 Inputs: [],
-                Outputs: [new PassOutput(new ResourceName("Y"), ResourceUsage.ColorAttachmentWrite)]));
+                Outputs: [new PassOutput(ResourceName.Of("Y"), ResourceUsage.ColorAttachmentWrite)]));
 
         var resolved = RenderGraphCompiler.Compile(passes);
 
@@ -91,8 +91,8 @@ public class CompilerTests
     [Fact]
     public void CycleDetection_Throws()
     {
-        var x = new ResourceName("X");
-        var y = new ResourceName("Y");
+        var x = ResourceName.Of("X");
+        var y = ResourceName.Of("Y");
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("A",
                 Inputs: [new PassInput(y, ResourceUsage.ShaderRead)],
@@ -108,9 +108,9 @@ public class CompilerTests
     public void DiamondDependency_CorrectToposortAndBarriers()
     {
         // A writes X, B reads X writes Y, C reads X writes Z, D reads Y and Z
-        var x = new ResourceName("X");
-        var y = new ResourceName("Y");
-        var z = new ResourceName("Z");
+        var x = ResourceName.Of("X");
+        var y = ResourceName.Of("Y");
+        var z = ResourceName.Of("Z");
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("A",
                 Inputs: [],
@@ -123,7 +123,7 @@ public class CompilerTests
                 Outputs: [new PassOutput(z, ResourceUsage.ColorAttachmentWrite)]),
             new RenderPassDeclaration("D",
                 Inputs: [new PassInput(y, ResourceUsage.ShaderRead), new PassInput(z, ResourceUsage.ShaderRead)],
-                Outputs: [new PassOutput(new ResourceName("Final"), ResourceUsage.Present)]));
+                Outputs: [new PassOutput(ResourceName.Of("Final"), ResourceUsage.Present)]));
 
         var resolved = RenderGraphCompiler.Compile(passes);
 
@@ -140,5 +140,29 @@ public class CompilerTests
         // D should have barriers for Y and Z (both transition from write to read)
         var dPass = resolved.First(r => r.Declaration.Name == "D");
         Assert.Equal(2, dPass.BarriersBefore.Length);
+    }
+
+    [Fact]
+    public void ResourceName_Create_RejectsNullEmptyAndWhitespace()
+    {
+        Assert.True(ResourceName.Create(null!).IsError);
+        Assert.True(ResourceName.Create("").IsError);
+        Assert.True(ResourceName.Create("   ").IsError);
+    }
+
+    [Fact]
+    public void ResourceName_Create_AcceptsValidName()
+    {
+        var result = ResourceName.Create("GBuffer.Albedo");
+        Assert.True(result.IsOk);
+        result.Match(
+            ok: r => { Assert.Equal("GBuffer.Albedo", r.Name); return 0; },
+            error: _ => throw new Xunit.Sdk.XunitException("Expected Ok"));
+    }
+
+    [Fact]
+    public void ResourceName_Of_ThrowsOnInvalid()
+    {
+        Assert.Throws<ArgumentException>(() => ResourceName.Of(""));
     }
 }

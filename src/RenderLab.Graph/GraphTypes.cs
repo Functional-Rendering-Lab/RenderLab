@@ -1,14 +1,54 @@
 using System.Collections.Immutable;
+using RenderLab.Functional;
 
 namespace RenderLab.Graph;
 
 /// <summary>
 /// Logical identity for a render graph resource (e.g. "GBufferAlbedo", "DepthBuffer").
 /// Two passes that reference the same <see cref="ResourceName"/> are linked by a data dependency.
+/// Construct via <see cref="Create"/> (returns <see cref="Result{T,TError}"/>) or
+/// <see cref="Of"/> (throws on invalid input — for compile-time literals only).
 /// </summary>
-public readonly record struct ResourceName(string Name)
+public readonly record struct ResourceName
 {
+    public string Name { get; }
+
+    private ResourceName(string name) { Name = name; }
+
+    /// <summary>
+    /// Smart constructor. Rejects null, empty, or whitespace names.
+    /// </summary>
+    public static Result<ResourceName, GraphError> Create(string name)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+            return Result<ResourceName, GraphError>.Error(
+                new GraphError.InvalidResourceName(name ?? "<null>"));
+        return Result<ResourceName, GraphError>.Ok(new ResourceName(name));
+    }
+
+    /// <summary>
+    /// Throwing convenience for literal call sites (a failure here is a programmer
+    /// bug, not runtime input). Use <see cref="Create"/> when the input is dynamic.
+    /// </summary>
+    public static ResourceName Of(string name) =>
+        Create(name).Match(
+            ok: r => r,
+            error: e => throw new ArgumentException($"Invalid ResourceName literal: {e}", nameof(name)));
+
     public override string ToString() => Name;
+}
+
+/// <summary>
+/// Errors that can be produced by render-graph construction or compilation.
+/// Used as the error channel for <see cref="ResourceName.Create"/>; future
+/// compiler errors (cycles, duplicate writers) will land here too.
+/// </summary>
+public abstract record GraphError
+{
+    public sealed record InvalidResourceName(string Attempted) : GraphError
+    {
+        public override string ToString() => $"InvalidResourceName(\"{Attempted}\")";
+    }
 }
 
 /// <summary>
