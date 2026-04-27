@@ -317,55 +317,19 @@ public sealed class DeferredDemo : IDemo
 
     // ─── Pass recording ──────────────────────────────────────────────
 
-    unsafe void RecordGBufferPass(Vk api, CommandBuffer cb)
+    void RecordGBufferPass(Vk api, CommandBuffer cb)
     {
         timestamps.BeginPass(api, cb, "GBuffer");
 
-        var clearValues = stackalloc ClearValue[4];
-        clearValues[0] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
-        clearValues[1] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
-        clearValues[2] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
-        clearValues[3] = new ClearValue(depthStencil: new ClearDepthStencilValue(1.0f, 0));
+        var resources = new GBufferPassResources(
+            RenderPass: gbufferRenderPass,
+            Framebuffer: gbufferFramebuffer,
+            Pipeline: gbufferPipeline,
+            PipelineLayout: gbufferPipelineLayout,
+            Extent: gpu.SwapchainExtent);
 
-        var renderPassBegin = new RenderPassBeginInfo
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = gbufferRenderPass,
-            Framebuffer = gbufferFramebuffer,
-            RenderArea = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent),
-            ClearValueCount = 4,
-            PClearValues = clearValues,
-        };
-
-        api.CmdBeginRenderPass(cb, &renderPassBegin, SubpassContents.Inline);
-        api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, gbufferPipeline);
-
-        var viewport = new Viewport(0, 0, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height, 0, 1);
-        api.CmdSetViewport(cb, 0, 1, &viewport);
-
-        var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
-        api.CmdSetScissor(cb, 0, 1, &scissor);
-
-        // Push constants
-        var pc = new GBufferPushConstants
-        {
-            Model = ui.MeshTransform.Matrix,
-            ViewProj = camera.ViewProjectionMatrix,
-            Albedo = ui.Material.Albedo,
-            SpecularStrength = ui.Material.SpecularStrength,
-            Shininess = ui.Material.Shininess,
-        };
-        api.CmdPushConstants(cb, gbufferPipelineLayout,
-            ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
-            0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
-
-        var vb = vertexBuffer;
-        ulong offset = 0;
-        api.CmdBindVertexBuffers(cb, 0, 1, &vb, &offset);
-        api.CmdBindIndexBuffer(cb, indexBuffer, 0, IndexType.Uint32);
-        api.CmdDrawIndexed(cb, indexCount, 1, 0, 0, 0);
-
-        api.CmdEndRenderPass(cb);
+        var pc = GBufferPass.BuildPushConstants(ui.MeshTransform, camera, ui.Material);
+        GBufferPass.Record(api, cb, resources, pc, vertexBuffer, indexBuffer, indexCount);
 
         timestamps.EndPass(api, cb);
     }
@@ -388,65 +352,27 @@ public sealed class DeferredDemo : IDemo
         timestamps.EndPass(api, cb);
     }
 
-    unsafe void RecordTonemapPass(Vk api, CommandBuffer cb, uint imageIndex)
+    void RecordTonemapPass(Vk api, CommandBuffer cb, uint imageIndex)
     {
         timestamps.BeginPass(api, cb, "Tonemap");
 
-        // Transition depth image for sampling when in Depth viz mode
         if (ui.Viz == VisualizationMode.Depth)
-        {
-            var depthBarrier = new ImageMemoryBarrier
-            {
-                SType = StructureType.ImageMemoryBarrier,
-                OldLayout = ImageLayout.DepthStencilAttachmentOptimal,
-                NewLayout = ImageLayout.DepthStencilReadOnlyOptimal,
-                SrcAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
-                DstAccessMask = AccessFlags.ShaderReadBit,
-                Image = depthImage,
-                SubresourceRange = new ImageSubresourceRange
-                {
-                    AspectMask = ImageAspectFlags.DepthBit,
-                    BaseMipLevel = 0, LevelCount = 1,
-                    BaseArrayLayer = 0, LayerCount = 1,
-                },
-            };
-            api.CmdPipelineBarrier(cb,
-                PipelineStageFlags.LateFragmentTestsBit,
-                PipelineStageFlags.FragmentShaderBit,
-                0, 0, null, 0, null, 1, &depthBarrier);
-        }
-
-        var clearValue = new ClearValue(new ClearColorValue(0, 0, 0, 1));
-
-        var renderPassBegin = new RenderPassBeginInfo
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = tonemapRenderPass,
-            Framebuffer = swapchainFramebuffers[imageIndex],
-            RenderArea = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent),
-            ClearValueCount = 1,
-            PClearValues = &clearValue,
-        };
-
-        api.CmdBeginRenderPass(cb, &renderPassBegin, SubpassContents.Inline);
-
-        var viewport = new Viewport(0, 0, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height, 0, 1);
-        api.CmdSetViewport(cb, 0, 1, &viewport);
-
-        var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
-        api.CmdSetScissor(cb, 0, 1, &scissor);
+            TransitionDepthForSampling(api, cb);
 
         if (ui.Viz == VisualizationMode.Final)
         {
-            api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, tonemapPipeline);
-            var ds = tonemapDescSets[gpu.CurrentFrame];
-            api.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, tonemapPipelineLayout, 0, 1, &ds, 0, null);
+            var resources = new TonemapPassResources(
+                RenderPass: tonemapRenderPass,
+                Framebuffer: swapchainFramebuffers[imageIndex],
+                Pipeline: tonemapPipeline,
+                PipelineLayout: tonemapPipelineLayout,
+                HdrSet: tonemapDescSets[gpu.CurrentFrame],
+                Extent: gpu.SwapchainExtent);
+            TonemapPass.Record(api, cb, resources);
         }
         else
         {
-            api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, debugVizPipeline);
-
-            var ds = ui.Viz switch
+            var sourceSet = ui.Viz switch
             {
                 VisualizationMode.Position => debugVizPositionSets[gpu.CurrentFrame],
                 VisualizationMode.Normal => debugVizNormalSets[gpu.CurrentFrame],
@@ -455,47 +381,67 @@ public sealed class DeferredDemo : IDemo
                 VisualizationMode.HDR => debugVizHdrSets[gpu.CurrentFrame],
                 _ => tonemapDescSets[gpu.CurrentFrame],
             };
-            api.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, debugVizPipelineLayout, 0, 1, &ds, 0, null);
-
-            var pc = new DebugVizPushConstants
-            {
-                Mode = ui.Viz == VisualizationMode.Depth ? 1 : 0,
-                NearPlane = camera.NearPlane,
-                FarPlane = camera.FarPlane,
-            };
-            api.CmdPushConstants(cb, debugVizPipelineLayout, ShaderStageFlags.FragmentBit,
-                0, (uint)Marshal.SizeOf<DebugVizPushConstants>(), &pc);
+            var resources = new DebugVizPassResources(
+                RenderPass: tonemapRenderPass,
+                Framebuffer: swapchainFramebuffers[imageIndex],
+                Pipeline: debugVizPipeline,
+                PipelineLayout: debugVizPipelineLayout,
+                SourceSet: sourceSet,
+                Extent: gpu.SwapchainExtent);
+            var pc = DebugVizPass.BuildPushConstants(ui.Viz == VisualizationMode.Depth, camera);
+            DebugVizPass.Record(api, cb, resources, pc);
         }
 
-        api.CmdDraw(cb, 3, 1, 0, 0);
-
-        api.CmdEndRenderPass(cb);
-
-        // Transition depth back for next frame's GBuffer pass
         if (ui.Viz == VisualizationMode.Depth)
-        {
-            var depthBarrier = new ImageMemoryBarrier
-            {
-                SType = StructureType.ImageMemoryBarrier,
-                OldLayout = ImageLayout.DepthStencilReadOnlyOptimal,
-                NewLayout = ImageLayout.DepthStencilAttachmentOptimal,
-                SrcAccessMask = AccessFlags.ShaderReadBit,
-                DstAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
-                Image = depthImage,
-                SubresourceRange = new ImageSubresourceRange
-                {
-                    AspectMask = ImageAspectFlags.DepthBit,
-                    BaseMipLevel = 0, LevelCount = 1,
-                    BaseArrayLayer = 0, LayerCount = 1,
-                },
-            };
-            api.CmdPipelineBarrier(cb,
-                PipelineStageFlags.FragmentShaderBit,
-                PipelineStageFlags.EarlyFragmentTestsBit,
-                0, 0, null, 0, null, 1, &depthBarrier);
-        }
+            TransitionDepthForAttachment(api, cb);
 
         timestamps.EndPass(api, cb);
+    }
+
+    unsafe void TransitionDepthForSampling(Vk api, CommandBuffer cb)
+    {
+        var depthBarrier = new ImageMemoryBarrier
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            OldLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            NewLayout = ImageLayout.DepthStencilReadOnlyOptimal,
+            SrcAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
+            DstAccessMask = AccessFlags.ShaderReadBit,
+            Image = depthImage,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.DepthBit,
+                BaseMipLevel = 0, LevelCount = 1,
+                BaseArrayLayer = 0, LayerCount = 1,
+            },
+        };
+        api.CmdPipelineBarrier(cb,
+            PipelineStageFlags.LateFragmentTestsBit,
+            PipelineStageFlags.FragmentShaderBit,
+            0, 0, null, 0, null, 1, &depthBarrier);
+    }
+
+    unsafe void TransitionDepthForAttachment(Vk api, CommandBuffer cb)
+    {
+        var depthBarrier = new ImageMemoryBarrier
+        {
+            SType = StructureType.ImageMemoryBarrier,
+            OldLayout = ImageLayout.DepthStencilReadOnlyOptimal,
+            NewLayout = ImageLayout.DepthStencilAttachmentOptimal,
+            SrcAccessMask = AccessFlags.ShaderReadBit,
+            DstAccessMask = AccessFlags.DepthStencilAttachmentWriteBit,
+            Image = depthImage,
+            SubresourceRange = new ImageSubresourceRange
+            {
+                AspectMask = ImageAspectFlags.DepthBit,
+                BaseMipLevel = 0, LevelCount = 1,
+                BaseArrayLayer = 0, LayerCount = 1,
+            },
+        };
+        api.CmdPipelineBarrier(cb,
+            PipelineStageFlags.FragmentShaderBit,
+            PipelineStageFlags.EarlyFragmentTestsBit,
+            0, 0, null, 0, null, 1, &depthBarrier);
     }
 
     void RecordImGuiPass(Vk api, CommandBuffer cb, uint imageIndex, float dt)

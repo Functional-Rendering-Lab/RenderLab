@@ -4,6 +4,7 @@ using ImGuiNET;
 using Silk.NET.Vulkan;
 using RenderLab.Ui.ImGui;
 using RenderLab.Gpu;
+using RenderLab.Papers;
 using RenderLab.Ui;
 using RenderLab.Platform.Desktop;
 using RenderLab.Scene;
@@ -241,52 +242,17 @@ public sealed class GBufferDemo : IDemo
     // Writes position, normal, albedo to 3 color attachments + depth.
     // Identical to DeferredDemo — same geometry, same shader, same data.
 
-    unsafe void RecordGBufferPass(Vk api, CommandBuffer cb)
+    void RecordGBufferPass(Vk api, CommandBuffer cb)
     {
-        var clearValues = stackalloc ClearValue[4];
-        clearValues[0] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
-        clearValues[1] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
-        clearValues[2] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
-        clearValues[3] = new ClearValue(depthStencil: new ClearDepthStencilValue(1.0f, 0));
+        var resources = new GBufferPassResources(
+            RenderPass: gbufferRenderPass,
+            Framebuffer: gbufferFramebuffer,
+            Pipeline: gbufferPipeline,
+            PipelineLayout: gbufferPipelineLayout,
+            Extent: gpu.SwapchainExtent);
 
-        var renderPassBegin = new RenderPassBeginInfo
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = gbufferRenderPass,
-            Framebuffer = gbufferFramebuffer,
-            RenderArea = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent),
-            ClearValueCount = 4,
-            PClearValues = clearValues,
-        };
-
-        api.CmdBeginRenderPass(cb, &renderPassBegin, SubpassContents.Inline);
-        api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, gbufferPipeline);
-
-        var viewport = new Viewport(0, 0, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height, 0, 1);
-        api.CmdSetViewport(cb, 0, 1, &viewport);
-
-        var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
-        api.CmdSetScissor(cb, 0, 1, &scissor);
-
-        var pc = new GBufferPushConstants
-        {
-            Model = Matrix4x4.Identity,
-            ViewProj = camera.ViewProjectionMatrix,
-            Albedo = MaterialParams.Default.Albedo,
-            SpecularStrength = MaterialParams.Default.SpecularStrength,
-            Shininess = MaterialParams.Default.Shininess,
-        };
-        api.CmdPushConstants(cb, gbufferPipelineLayout,
-            ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
-            0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
-
-        var vb = vertexBuffer;
-        ulong offset = 0;
-        api.CmdBindVertexBuffers(cb, 0, 1, &vb, &offset);
-        api.CmdBindIndexBuffer(cb, indexBuffer, 0, IndexType.Uint32);
-        api.CmdDrawIndexed(cb, indexCount, 1, 0, 0, 0);
-
-        api.CmdEndRenderPass(cb);
+        var pc = GBufferPass.BuildPushConstants(Transform.Default, camera, MaterialParams.Default);
+        GBufferPass.Record(api, cb, resources, pc, vertexBuffer, indexBuffer, indexCount);
     }
 
     // ─── Manual barriers ─────────────────────────────────────────────
@@ -355,28 +321,7 @@ public sealed class GBufferDemo : IDemo
 
     unsafe void RecordDebugVizPass(Vk api, CommandBuffer cb, uint imageIndex)
     {
-        var clearValue = new ClearValue(new ClearColorValue(0, 0, 0, 1));
-
-        var renderPassBegin = new RenderPassBeginInfo
-        {
-            SType = StructureType.RenderPassBeginInfo,
-            RenderPass = swapchainRenderPass,
-            Framebuffer = swapchainFramebuffers[imageIndex],
-            RenderArea = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent),
-            ClearValueCount = 1,
-            PClearValues = &clearValue,
-        };
-
-        api.CmdBeginRenderPass(cb, &renderPassBegin, SubpassContents.Inline);
-        api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, debugVizPipeline);
-
-        var viewport = new Viewport(0, 0, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height, 0, 1);
-        api.CmdSetViewport(cb, 0, 1, &viewport);
-
-        var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
-        api.CmdSetScissor(cb, 0, 1, &scissor);
-
-        var ds = vizMode switch
+        var sourceSet = vizMode switch
         {
             VisualizationMode.Position => debugVizPositionSets[gpu.CurrentFrame],
             VisualizationMode.Normal => debugVizNormalSets[gpu.CurrentFrame],
@@ -384,20 +329,15 @@ public sealed class GBufferDemo : IDemo
             VisualizationMode.Depth => debugVizDepthSets[gpu.CurrentFrame],
             _ => debugVizPositionSets[gpu.CurrentFrame],
         };
-        api.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, debugVizPipelineLayout, 0, 1, &ds, 0, null);
-
-        var pc = new DebugVizPushConstants
-        {
-            Mode = vizMode == VisualizationMode.Depth ? 1 : 0,
-            NearPlane = camera.NearPlane,
-            FarPlane = camera.FarPlane,
-        };
-        api.CmdPushConstants(cb, debugVizPipelineLayout, ShaderStageFlags.FragmentBit,
-            0, (uint)Marshal.SizeOf<DebugVizPushConstants>(), &pc);
-
-        api.CmdDraw(cb, 3, 1, 0, 0);
-
-        api.CmdEndRenderPass(cb);
+        var resources = new DebugVizPassResources(
+            RenderPass: swapchainRenderPass,
+            Framebuffer: swapchainFramebuffers[imageIndex],
+            Pipeline: debugVizPipeline,
+            PipelineLayout: debugVizPipelineLayout,
+            SourceSet: sourceSet,
+            Extent: gpu.SwapchainExtent);
+        var pc = DebugVizPass.BuildPushConstants(vizMode == VisualizationMode.Depth, camera);
+        DebugVizPass.Record(api, cb, resources, pc);
 
         // Transition depth back for next frame's GBuffer pass
         if (vizMode == VisualizationMode.Depth)
