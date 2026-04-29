@@ -16,6 +16,11 @@ using Framebuffer = Silk.NET.Vulkan.Framebuffer;
 
 namespace RenderLab.App.Demos;
 
+// Type alias must live after the namespace declaration: a compilation-unit
+// alias loses to the parent-namespace walk-up that would otherwise resolve
+// `Scene` to the `RenderLab.Scene` namespace.
+using Scene = RenderLab.Scene.Scene;
+
 // ─── M3: Deferred Baseline ──────────────────────────────────────────
 // Validates: Multiple color attachments, descriptor sets, push constants,
 // fullscreen-quad lighting, ImGui integration.
@@ -36,6 +41,7 @@ public sealed class DeferredDemo : IDemo
 
     // Mesh
     uint indexCount;
+    MeshData sphereMesh = null!;
     Buffer vertexBuffer, indexBuffer;
     Allocation vertexAlloc, indexAlloc;
 
@@ -50,8 +56,10 @@ public sealed class DeferredDemo : IDemo
     AppUiModel app = AppUiModel.Default(DemoId.Deferred);
     UiIntent lastIntent = UiIntent.None;
 
-    // Derived per frame from ui.Camera + swapchain aspect
-    Camera camera = null!;
+    // Derived per frame from ui.* + swapchain aspect. The scene is the
+    // immutable snapshot consumed by pass recorders and the Scene inspector;
+    // UiModel remains the editable source.
+    Scene scene = null!;
 
     // Transient resources (recreated on resize)
     Sampler sampler;
@@ -121,8 +129,9 @@ public sealed class DeferredDemo : IDemo
                         input.ScrollDelta * ZoomSensitivity));
 
                 ui = ui with { Camera = FreeCameraController.Update(ui.Camera, cameraInput) };
-                camera = FreeCameraController.ToCamera(ui.Camera, (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
             }
+
+            scene = BuildScene();
 
             // Feed mouse state to ImGui so it knows what's hovered/clicked
             var io = ImGui.GetIO();
@@ -188,11 +197,11 @@ public sealed class DeferredDemo : IDemo
     void Init()
     {
         // ─── Load mesh ───────────────────────────────────────────────
-        var mesh = ObjLoader.CreateSphere();
-        indexCount = (uint)mesh.Indices.Length;
+        sphereMesh = ObjLoader.CreateSphere();
+        indexCount = (uint)sphereMesh.Indices.Length;
 
         Console.WriteLine($"RenderLab M3 — Deferred Baseline");
-        Console.WriteLine($"  Mesh: {mesh.Vertices.Length} vertices, {mesh.Indices.Length / 3} triangles");
+        Console.WriteLine($"  Mesh: {sphereMesh.Vertices.Length} vertices, {sphereMesh.Indices.Length / 3} triangles");
 
         // ─── Platform + GPU init ─────────────────────────────────────
         window = DesktopWindow.Create("RenderLab — M3 Deferred", WindowWidth, WindowHeight);
@@ -202,9 +211,9 @@ public sealed class DeferredDemo : IDemo
 
         // ─── Upload mesh to GPU ──────────────────────────────────────
         (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit,
-            mesh.Vertices);
+            sphereMesh.Vertices);
         (indexBuffer, indexAlloc) = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit,
-            mesh.Indices);
+            sphereMesh.Indices);
 
         // ─── Shaders ─────────────────────────────────────────────────
         var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
@@ -261,8 +270,8 @@ public sealed class DeferredDemo : IDemo
             vk.DestroyShaderModule(gpu.Device, debugVizFragModule, null);
         }
 
-        // ─── Camera (derived from UiModel.Default) ───────────────────
-        camera = FreeCameraController.ToCamera(ui.Camera, (float)WindowWidth / WindowHeight);
+        // ─── Initial scene snapshot ──────────────────────────────────
+        scene = BuildScene((float)WindowWidth / WindowHeight);
 
         // ─── Transient resources ─────────────────────────────────────
         sampler = VulkanImage.CreateSampler(gpu);
@@ -328,7 +337,8 @@ public sealed class DeferredDemo : IDemo
             PipelineLayout: gbufferPipelineLayout,
             Extent: gpu.SwapchainExtent);
 
-        var pc = GBufferPass.BuildPushConstants(ui.MeshTransform, camera, ui.Material);
+        var mesh = scene.Meshes[0];
+        var pc = GBufferPass.BuildPushConstants(mesh.Transform, scene.Camera, mesh.Material);
         GBufferPass.Record(api, cb, resources, pc, vertexBuffer, indexBuffer, indexCount);
 
         timestamps.EndPass(api, cb);
@@ -346,7 +356,7 @@ public sealed class DeferredDemo : IDemo
             GBufferDescriptorSet: gbufferDescSets[gpu.CurrentFrame],
             Extent: gpu.SwapchainExtent);
 
-        var pc = DeferredLighting.BuildPushConstants(camera, ui.KeyLight, ui.Shading, ui.LightingOnly);
+        var pc = DeferredLighting.BuildPushConstants(scene.Camera, scene.Lights[0], ui.Shading, ui.LightingOnly);
         DeferredLighting.Record(api, cb, resources, pc, ui.ClearColor);
 
         timestamps.EndPass(api, cb);
@@ -388,7 +398,7 @@ public sealed class DeferredDemo : IDemo
                 PipelineLayout: debugVizPipelineLayout,
                 SourceSet: sourceSet,
                 Extent: gpu.SwapchainExtent);
-            var pc = DebugVizPass.BuildPushConstants(ui.Viz == VisualizationMode.Depth, camera);
+            var pc = DebugVizPass.BuildPushConstants(ui.Viz == VisualizationMode.Depth, scene.Camera);
             DebugVizPass.Record(api, cb, resources, pc);
         }
 
@@ -456,16 +466,10 @@ public sealed class DeferredDemo : IDemo
             TimestampMillis: timestamps.TimingsMs.ToArray(),
             ResolvedPasses: resolvedPasses);
 
-        var viewResult = UiView.Draw(app, ui, stats);
+        var viewResult = UiView.Draw(app, ui, scene, stats);
         ui = UiUpdate.ApplyAll(ui, viewResult.Messages);
         app = AppUiUpdate.ApplyAll(app, viewResult.AppMessages);
         lastIntent = viewResult.Intent;
-
-        // UiView may have edited the camera; rebuild the derived Camera before
-        // next frame's recorders run. Aspect uses the live swapchain extent.
-        camera = FreeCameraController.ToCamera(
-            ui.Camera,
-            (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
 
         imgui.RecordCommands(api, cb, overlayRenderPass,
             overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
@@ -528,7 +532,7 @@ public sealed class DeferredDemo : IDemo
             ImageLayout.DepthStencilReadOnlyOptimal);
         debugVizHdrSets = VulkanDescriptors.AllocateSets(gpu, debugVizDescPool, singleDsLayout, frames, hdrView, sampler);
 
-        camera = FreeCameraController.ToCamera(ui.Camera, (float)w / h);
+        scene = BuildScene((float)w / h);
     }
 
     unsafe void DestroyTransientResources()
@@ -612,6 +616,17 @@ public sealed class DeferredDemo : IDemo
         Key.Z             => ImGuiKey.Z,
         _                 => ImGuiKey.None,
     };
+
+    // ─── Scene snapshot ──────────────────────────────────────────────
+
+    Scene BuildScene() =>
+        BuildScene((float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
+
+    Scene BuildScene(float aspect) => new(
+        Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
+        Meshes: ImmutableArray.Create(
+            new SceneMesh("Sphere", sphereMesh, ui.MeshTransform, ui.Material)),
+        Lights: ImmutableArray.Create(ui.KeyLight));
 
     // ─── Cleanup ─────────────────────────────────────────────────────
 

@@ -1,10 +1,12 @@
 using System.Numerics;
 using ImGuiNET;
+using RenderLab.Scene;
 using RenderLab.Ui;
 
 namespace RenderLab.Ui.ImGui;
 
 using ImGui = ImGuiNET.ImGui;
+using Scene = RenderLab.Scene.Scene;
 
 /// <summary>
 /// Composes the app shell (main menu bar, dockspace) and debug panels into the
@@ -17,7 +19,7 @@ using ImGui = ImGuiNET.ImGui;
 /// </summary>
 public static class UiView
 {
-    public static UiViewResult Draw(AppUiModel app, UiModel model, FrameStats stats)
+    public static UiViewResult Draw(AppUiModel app, UiModel model, Scene scene, FrameStats stats)
     {
         var appMessages = new List<AppUiMsg>();
         var messages = new List<UiMsg>();
@@ -33,6 +35,7 @@ public static class UiView
         if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.KeyLight, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
         if (app.IsPanelVisible(PanelId.Sphere))        SphereDebugMenu.Draw(model.MeshTransform, model.Material, dispatch);
         if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
+        if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(scene);
 
         var io = ImGui.GetIO();
         var intent = new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard);

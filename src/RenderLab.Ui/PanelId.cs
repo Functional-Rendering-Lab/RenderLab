@@ -12,4 +12,5 @@ public enum PanelId
     Lighting,
     Sphere,
     RenderGraph,
+    Scene,
 }

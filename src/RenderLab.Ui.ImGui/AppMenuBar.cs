@@ -31,6 +31,7 @@ public static class AppMenuBar
             ViewToggle("Lighting",      PanelId.Lighting,      app, dispatch);
             ViewToggle("Sphere",        PanelId.Sphere,        app, dispatch);
             ViewToggle("Render Graph",  PanelId.RenderGraph,   app, dispatch);
+            ViewToggle("Scene",         PanelId.Scene,         app, dispatch);
             ImGui.EndMenu();
         }
 
