@@ -4,6 +4,12 @@ using Silk.NET.Vulkan;
 
 namespace RenderLab.Gpu;
 
+/// <summary>
+/// 2D vertex with per-vertex color, used by the triangle demo. Pairs with
+/// <see cref="BindingDescription"/> / <see cref="AttributeDescriptions"/> to
+/// configure a graphics pipeline. For 3D meshes, see
+/// <c>RenderLab.Scene.Vertex3D</c>.
+/// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct Vertex
 {

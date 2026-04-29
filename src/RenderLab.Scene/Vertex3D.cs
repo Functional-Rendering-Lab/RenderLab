@@ -4,6 +4,11 @@ using Silk.NET.Vulkan;
 
 namespace RenderLab.Scene;
 
+/// <summary>
+/// Standard 3D mesh vertex: position, normal, UV. Pairs with
+/// <see cref="BindingDescription"/> / <see cref="AttributeDescriptions"/> to
+/// configure a Vulkan graphics pipeline.
+/// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public readonly struct Vertex3D(Vector3 position, Vector3 normal, Vector2 uv)
 {

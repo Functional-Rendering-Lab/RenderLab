@@ -3,6 +3,11 @@ using Silk.NET.Vulkan;
 
 namespace RenderLab.Gpu;
 
+/// <summary>
+/// Factory helpers for Vulkan render passes, framebuffers, and graphics pipelines.
+/// All members are imperative-shell code: they call <c>vkCreate*</c> directly and
+/// return raw Silk.NET handles owned by the caller.
+/// </summary>
 public static class VulkanPipeline
 {
     // GBuffer formats used across render pass, image creation, and pipeline

@@ -2,6 +2,12 @@ using Silk.NET.Vulkan;
 
 namespace RenderLab.Gpu;
 
+/// <summary>
+/// Swapchain lifecycle: surface-format / present-mode selection, image and
+/// image-view creation, and recreation on window resize. Mutates
+/// <see cref="GpuState"/> in place — the swapchain handles, images, and views
+/// live on the kernel.
+/// </summary>
 public static class VulkanSwapchain
 {
     public static unsafe void Create(GpuState state, uint width = 0, uint height = 0)

@@ -36,7 +36,7 @@ Everything in `RenderLab.Graph` and `RenderLab.Scene` is pure — no side effect
 
 Everything in `RenderLab.Gpu` and `RenderLab.Platform.Desktop` performs side effects. `GpuState` is the single mutable kernel, passed explicitly by reference — never global, never static. `DeviceCapabilities` is an immutable record on `GpuState`, queried once at device creation — papers read it instead of calling Vulkan directly.
 
-GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Allocator.cs`), hung off `GpuState.Allocator`. Every `vkAllocateMemory` goes through it; resource creation returns `(handle, Allocation)` so buffer/memory lifetimes are coupled at the type level, and callers pick a `MemoryIntent` (`GpuOnly`, `CpuToGpu`) instead of hand-rolling memory-property flags. The ImGui per-frame vertex/index buffers grow in doubling steps and stay mapped for the lifetime of the instance, so `vkAllocateMemory` fires O(log N) times at warm-up rather than every resize. Sub-allocation stays on the roadmap for when it becomes a measurable bottleneck (see `blogs/ideas/field-notes/choosing-a-vulkan-allocator`).
+GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Allocator.cs`), hung off `GpuState.Allocator`. Every `vkAllocateMemory` goes through it; resource creation returns `(handle, Allocation)` so buffer/memory lifetimes are coupled at the type level, and callers pick a `MemoryIntent` (`GpuOnly`, `CpuToGpu`) instead of hand-rolling memory-property flags. The ImGui per-frame vertex/index buffers grow in doubling steps and stay mapped for the lifetime of the instance, so `vkAllocateMemory` fires O(log N) times at warm-up rather than every resize. Sub-allocation stays on the roadmap for when it becomes a measurable bottleneck.
 
 `Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale.
 
@@ -124,19 +124,23 @@ dotnet test tests/RenderLab.Graph.Tests
 
 ```
 src/
-  RenderLab.Functional/       Optional<T>, Result<T,E>, Pipe extensions
+  RenderLab.Functional/        Optional<T>, Result<T,E>, Pipe extensions
   RenderLab.Graph/             RenderGraphCompiler, pass/barrier types
   RenderLab.Gpu/               Vulkan device, swapchain, buffers, images,
                                pipelines, descriptors, graph executor,
-                               DeviceCapabilities, PushConstants
+                               Allocator, DeviceCapabilities, PushConstants
   RenderLab.Scene/             Camera, MeshData, Vertex3D, PointLight,
-                               MaterialParams, OBJ loader
+                               MaterialParams, FreeCameraController, OBJ loader
   RenderLab.Platform.Desktop/  GLFW window wrapper (poll-based)
-  RenderLab.Papers/            Paper implementations (DeferredLighting)
+  RenderLab.Papers/            Pass modules: GBufferPass, DeferredLighting,
+                               TonemapPass, DebugVizPass
   RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
   RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
   RenderLab.Shaders/           GLSL sources + SPIR-V build script
-  RenderLab.App/               Desktop composition root (Program.cs)
+  RenderLab.App/               CLI dispatcher + per-article demos under Demos/
 tests/
-  RenderLab.Graph.Tests/       6 tests: topo-sort, barriers, cycle detection
+  RenderLab.Functional.Tests/  Optional, Result, Pipe
+  RenderLab.Graph.Tests/       Topological sort, barrier insertion, cycle detection
+  RenderLab.Scene.Tests/       Camera math, free-fly controller, material packing
+  RenderLab.Ui.Tests/          Pure UI reducers (Model/Msg/Update)
 ```

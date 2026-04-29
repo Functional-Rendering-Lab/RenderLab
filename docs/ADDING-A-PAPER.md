@@ -1,118 +1,156 @@
 # Adding a Paper Implementation
 
-This guide walks through implementing a rendering paper in RenderLab.
-The existing M3 deferred pipeline in `Program.cs` serves as the canonical example.
+This guide walks through implementing a rendering paper in RenderLab. The canonical
+example is the M3 deferred pipeline: pure pass modules in `src/RenderLab.Papers/`
+(`GBufferPass.cs`, `DeferredLighting.cs`, `TonemapPass.cs`, `DebugVizPass.cs`)
+wired into a demo class in `src/RenderLab.App/Demos/DeferredDemo.cs`.
 
-## Overview
+For the rationale behind the per-article demo split, see
+[`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md).
 
-A paper implementation consists of:
+## Anatomy of a paper
 
-1. **GLSL shaders** compiled to SPIR-V (`src/RenderLab.Shaders/`)
-2. **Pass declarations** — pure data describing resource I/O (`RenderPassDeclaration`)
-3. **Pipeline setup** — Vulkan pipelines and descriptor set layouts
-4. **Pass recorders** — functions that record Vulkan commands into a command buffer
-5. **Wiring** — connecting declarations and recorders in `Program.cs`
+A paper implementation is split across two assemblies:
 
-The render graph compiler handles execution ordering and barrier insertion automatically.
+| Lives in | What it owns |
+|---|---|
+| `src/RenderLab.Papers/<YourPass>.cs` | Pure: a `*PushConstants` builder + a `Record` function that takes a `*PassResources` value record. No fields, no `GpuState` mutation. |
+| `src/RenderLab.App/Demos/<YourDemo>.cs` | Impure shell: owns the window, `GpuState`, render-pass / pipeline / framebuffer / descriptor lifetimes, and the render-graph wiring. |
 
-## Step-by-Step
+Pass modules are static classes — they describe *how* to record commands, never
+*what* GPU resources exist. The demo owns lifetimes and hands them in by value.
+
+## Step-by-step
 
 ### 1. Write your shaders
 
-Add `.vert` and `.frag` files to `src/RenderLab.Shaders/<your-shader-name>/`
-(one folder per shader name — the compile script discovers them recursively).
-Compile them to SPIR-V:
+Add `.vert` / `.frag` files under `src/RenderLab.Shaders/<your-shader-name>/`
+(one folder per shader name — the build script discovers them recursively).
+Compile to SPIR-V:
 
 ```bash
 python src/RenderLab.Shaders/compile_shaders.py
 ```
 
-### 2. Declare your passes
+The compiled `.spv` files are copied next to the demo binary at build time.
 
-Each pass declares what resources it reads and writes. This is pure data — no execution.
+### 2. Define your push constants
 
-```csharp
-var myInput  = new ResourceName("MyPass.Input");
-var myOutput = new ResourceName("MyPass.Output");
+Add a `[StructLayout(LayoutKind.Sequential)]` struct to
+`src/RenderLab.Gpu/PushConstants.cs` (or alongside your pass module if it's
+paper-specific). Match the GLSL `layout(push_constant)` block exactly.
 
-var myPass = new RenderPassDeclaration("MyPass",
-    Inputs:  [new PassInput(myInput, ResourceUsage.ShaderRead)],
-    Outputs: [new PassOutput(myOutput, ResourceUsage.ColorAttachmentWrite)]);
-```
+### 3. Write a pass module under `RenderLab.Papers`
 
-Add your pass to the `ImmutableArray.Create(...)` call alongside existing passes (Program.cs:136).
-The compiler will sort it into the correct execution position based on dependencies.
-
-### 3. Create the pipeline
-
-Use `VulkanPipeline` helpers depending on your pass type:
-
-- **Fullscreen pass** (post-process, lighting): `VulkanPipeline.CreateFullscreenPipeline()`
-- **Geometry pass** (drawing meshes): `VulkanPipeline.CreateGBufferPipeline()` or similar
-
-If your pass reads from previous passes, create a descriptor set layout via `VulkanDescriptors`.
-
-### 4. Write the recorder function
-
-A recorder receives `(Vk api, CommandBuffer cb)` and records Vulkan commands:
+Mirror the shape of `Papers/GBufferPass.cs`:
 
 ```csharp
-unsafe void RecordMyPass(Vk api, CommandBuffer cb)
+namespace RenderLab.Papers;
+
+public static class MyPass
 {
-    // Begin render pass with your framebuffer
-    api.CmdBeginRenderPass(cb, &renderPassBegin, SubpassContents.Inline);
-    api.CmdBindPipeline(cb, PipelineBindPoint.Graphics, myPipeline);
+    public static MyPushConstants BuildPushConstants(/* immutable scene inputs */) =>
+        new() { /* ... */ };
 
-    // Set viewport + scissor, bind descriptors, push constants, draw
-    api.CmdDraw(cb, 3, 1, 0, 0); // fullscreen triangle
-
-    api.CmdEndRenderPass(cb);
+    public static unsafe void Record(
+        Vk vk,
+        CommandBuffer cb,
+        MyPassResources r,
+        MyPushConstants pc /*, any per-frame resources passed in by value */)
+    {
+        // CmdBeginRenderPass / BindPipeline / SetViewport / SetScissor /
+        // PushConstants / Bind buffers / Draw / EndRenderPass
+    }
 }
+
+public readonly record struct MyPassResources(
+    RenderPass RenderPass,
+    Framebuffer Framebuffer,
+    Pipeline Pipeline,
+    PipelineLayout PipelineLayout,
+    Extent2D Extent /*, any descriptor sets the pass binds */);
 ```
 
-### 5. Wire into the graph executor
+Keep `BuildPushConstants` pure — it's the part that gets unit-tested. `Record`
+is the only side-effecting code in the file, and it touches only the Vulkan
+handles passed in via `*PassResources`.
 
-Add your recorder to the `passRecorders` dictionary (Program.cs:213):
+### 4. Declare the pass in the render graph
+
+In your demo, add a `RenderPassDeclaration` describing resource I/O. The graph
+compiler topo-sorts passes and inserts barriers from these declarations alone.
 
 ```csharp
-passRecorders["MyPass"] = (api, cb) => RecordMyPass(api, cb);
+var myInput  = ResourceName.Of("Previous.Output");
+var myOutput = ResourceName.Of("MyPass.Output");
+
+var passes = ImmutableArray.Create(
+    /* ...existing passes... */
+    new RenderPassDeclaration("MyPass",
+        Inputs:  [new PassInput(myInput, ResourceUsage.ShaderRead)],
+        Outputs: [new PassOutput(myOutput, ResourceUsage.ColorAttachmentWrite)])
+);
+
+resolvedPasses = RenderGraphCompiler.Compile(passes).Match(
+    ok: r => r,
+    error: e => throw new InvalidOperationException($"Compile failed: {e}"));
 ```
 
-Map any new resources to Vulkan images in `resourceImages` (Program.cs:203).
+### 5. Create resources and wire the recorder
 
-## What You Get for Free
+In your demo's `Init` and `CreateTransientResources`, create the pipeline
+(`VulkanPipeline.CreateFullscreenPipeline` or `CreateGBufferPipeline`),
+descriptor sets (`VulkanDescriptors`), and offscreen images / framebuffers
+(`VulkanImage.CreateOffscreen`, `VulkanPipeline.CreateOffscreenFramebuffer`).
 
-- **Execution ordering** — the compiler topologically sorts passes by resource dependencies
-- **Pipeline barriers** — resource transitions are computed and inserted automatically
-- **GPU timestamps** — call `timestamps.BeginPass()`/`EndPass()` for per-pass profiling
-- **ImGui overlay** — timings display automatically in the debug window
+Then hand the recorder to `VulkanGraphExecutor` each frame:
 
-## What You Must Do Yourself
+```csharp
+var resourceImages = new Dictionary<ResourceName, Image>
+{
+    [myInput]  = previousPassImage,
+    [myOutput] = myImage,
+    /* ... */
+};
 
-- Compile shaders to SPIR-V
-- Create Vulkan pipelines and descriptor set layouts
-- Create offscreen images and framebuffers for your pass outputs
-- Destroy resources on cleanup and swapchain resize
+var passRecorders = new Dictionary<string, Action<Vk, CommandBuffer>>
+{
+    /* ... */
+    ["MyPass"] = (api, cb) => RecordMyPass(api, cb),
+};
 
-## Common Patterns
+VulkanGraphExecutor.Execute(gpu, cmd, resolvedPasses, passRecorders, resourceImages);
+```
 
-### Fullscreen pass (reads texture, writes to render target)
+`RecordMyPass` builds the per-frame `MyPassResources` and `MyPushConstants` from
+the demo's owned state, then forwards to `MyPass.Record`. See `RecordGBufferPass`
+in `Demos/DeferredDemo.cs` for the canonical shape.
 
-See `RecordLightingPass` and `RecordTonemapPass` in Program.cs:309 and :355.
-Uses `VulkanPipeline.CreateFullscreenPipeline()` + `CmdDraw(3, 1, 0, 0)` for a fullscreen triangle.
+### 6. (Optional) Add a dedicated demo
 
-### Geometry pass with push constants
+If your paper deserves its own narrative, add a `Demos/MyPaperDemo.cs`
+implementing `IDemo` and one switch case in `Program.cs`. See
+[`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale.
 
-See `RecordGBufferPass` in Program.cs:259.
-Uses `CmdPushConstants()` for per-draw data (model/view/projection matrices).
+## What the engine gives you
 
-### Reading from a previous pass
+- **Execution ordering** — `RenderGraphCompiler` topologically sorts passes by `ResourceName` dependencies.
+- **Pipeline barriers** — resource transitions are computed from `PassInput` / `PassOutput` usage and inserted by `VulkanGraphExecutor`.
+- **GPU timestamps** — wrap your recorder body in `timestamps.BeginPass(…)` / `timestamps.EndPass(…)` for per-pass timings.
+- **ImGui debug overlay** — timings and the resolved pass list show up automatically via `RenderGraphDebugMenu`.
 
-Create a descriptor set that binds the previous pass's output image view + sampler.
-See how the lighting pass reads GBuffer textures via `gbufferDescSets` (Program.cs:335).
+## What you write yourself
 
-## Current State
+- GLSL shaders and the SPIR-V build step.
+- Vulkan pipeline + descriptor set layouts + offscreen images / framebuffers.
+- Resource cleanup in `DestroyTransientResources` / `Dispose` and recreation on swapchain resize.
 
-The `RenderLab.Papers/` module from the PRD does not yet exist.
-Paper logic currently lives directly in `Program.cs`. As more papers are added,
-pass declarations and recorders will be extracted into standalone modules.
+## Reference patterns in the deferred demo
+
+| Pattern | Where |
+|---|---|
+| Geometry pass with push-constant matrices | `Papers/GBufferPass.cs` + `Demos/DeferredDemo.RecordGBufferPass` |
+| Fullscreen pass that reads previous outputs | `Papers/DeferredLighting.cs` + `Demos/DeferredDemo.RecordLightingPass` |
+| Fullscreen blit / tonemap | `Papers/TonemapPass.cs` + `Demos/DeferredDemo.RecordTonemapPass` |
+| Conditional debug visualization | `Papers/DebugVizPass.cs` + `Demos/DeferredDemo.RecordTonemapPass` |
+| Cross-pass depth-buffer sampling (manual barrier) | `TransitionDepthForSampling` / `TransitionDepthForAttachment` in `Demos/DeferredDemo.cs` |
