@@ -8,7 +8,7 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 ```
 RenderLab.App              (desktop composition root — wires everything)
   |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
-  |     |-> RenderLab.Scene      (Camera, Mesh, PointLight, MaterialParams — pure data)
+  |     |-> RenderLab.Scene      (Scene snapshot, Camera, Mesh, PointLight, MaterialParams — pure data)
   |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
   |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
@@ -26,7 +26,7 @@ No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero sid
 
 `RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `DemoId`, `FrameStats`. It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
 
-`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Each debug panel (`AppMenuBar`, `LightingDebugMenu`, `FreeCameraDebugMenu`, `RenderGraphDebugMenu`, `SphereDebugMenu`, `VisualizationDebugMenu`) reads an immutable slice of the model, draws ImGui widgets, and returns `UiIntent`s the shell folds back through `AppUiUpdate`.
+`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Each debug panel (`AppMenuBar`, `LightingDebugMenu`, `FreeCameraDebugMenu`, `RenderGraphDebugMenu`, `SphereDebugMenu`, `VisualizationDebugMenu`, `ScenePanel`) reads an immutable slice of the model, draws ImGui widgets, and returns `UiIntent`s the shell folds back through `AppUiUpdate`. `ScenePanel` is read-only and inspects the per-frame `Scene` snapshot rather than `UiModel`.
 
 The assembly is `RenderLab.Ui.ImGui` but the last namespace segment collides with `ImGuiNET.ImGui` (the ImGui entry-point class) during simple-name lookup. To keep the assembly name matching the folder, each file declares a `using ImGui = ImGuiNET.ImGui;` alias *inside* the namespace — compilation-unit aliases lose to the parent-namespace walk-up, so the alias must live after `namespace RenderLab.Ui.ImGui;`.
 
@@ -43,7 +43,14 @@ GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Alloca
 ## Per-Frame Data Flow
 
 ```
-Scene snapshot (Camera, PointLight, mesh transforms)
+UiModel (editable per-frame state)
+  |
+  v
+Scene snapshot ..................................... PURE
+  Immutable record built each frame in the demo:
+  Scene(Camera, ImmutableArray<SceneMesh>, ImmutableArray<PointLight>)
+  Consumed by pass recorders and the Scene inspector panel.
+  Render-config (shading mode, viz mode, clear color) stays on UiModel.
   |
   v
 Pass declarations (Program.cs) ...................... PURE
@@ -98,6 +105,7 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `DeferredLighting` | `Papers/DeferredLighting.cs` | Blinn-Phong lighting pass — pure push-constant builder + Vulkan recorder |
 | `PointLight` | `Scene/PointLight.cs` | Immutable point light (position, color, intensity) |
 | `MaterialParams` | `Scene/MaterialParams.cs` | Blinn-Phong material (specular strength, shininess) — encoding matches GBuffer alpha |
+| `Scene` / `SceneMesh` | `Scene/Scene.cs` | Per-frame immutable snapshot (camera, meshes, lights) consumed by pass recorders and the Scene inspector |
 
 ## Build and Run
 
@@ -129,8 +137,9 @@ src/
   RenderLab.Gpu/               Vulkan device, swapchain, buffers, images,
                                pipelines, descriptors, graph executor,
                                Allocator, DeviceCapabilities, PushConstants
-  RenderLab.Scene/             Camera, MeshData, Vertex3D, PointLight,
-                               MaterialParams, FreeCameraController, OBJ loader
+  RenderLab.Scene/             Scene snapshot, Camera, MeshData, Vertex3D,
+                               PointLight, MaterialParams, FreeCameraController,
+                               OBJ loader
   RenderLab.Platform.Desktop/  GLFW window wrapper (poll-based)
   RenderLab.Papers/            Pass modules: GBufferPass, DeferredLighting,
                                TonemapPass, DebugVizPass
