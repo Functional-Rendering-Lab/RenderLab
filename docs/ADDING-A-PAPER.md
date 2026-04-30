@@ -151,6 +151,7 @@ implementing `IDemo` and one switch case in `Program.cs`. See
 |---|---|
 | Geometry pass with push-constant matrices | `Papers/GBufferPass.cs` + `Demos/DeferredDemo.RecordGBufferPass` |
 | Fullscreen pass that reads previous outputs | `Papers/DeferredLighting.cs` + `Demos/DeferredDemo.RecordLightingPass` |
+| Per-frame SSBO upload (e.g. an array of lights) | `Scene/LightPacking.cs` + `Demos/DeferredDemo.UploadLightsForCurrentFrame` |
 | Fullscreen blit / tonemap | `Papers/TonemapPass.cs` + `Demos/DeferredDemo.RecordTonemapPass` |
 | Conditional debug visualization | `Papers/DebugVizPass.cs` + `Demos/DeferredDemo.RecordTonemapPass` |
 | Cross-pass depth-buffer sampling (manual barrier) | `TransitionDepthForSampling` / `TransitionDepthForAttachment` in `Demos/DeferredDemo.cs` |
