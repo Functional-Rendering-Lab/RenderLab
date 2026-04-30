@@ -8,7 +8,7 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 ```
 RenderLab.App              (desktop composition root — wires everything)
   |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
-  |     |-> RenderLab.Scene      (Scene snapshot, Camera, Mesh, PointLight, MaterialParams — pure data)
+  |     |-> RenderLab.Scene      (Scene snapshot, Camera, Mesh, Light DU, HemisphericAmbient, MaterialParams — pure data)
   |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
   |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
@@ -52,7 +52,7 @@ UiModel (editable per-frame state)
   v
 Scene snapshot ..................................... PURE
   Immutable record built each frame in the demo:
-  Scene(Camera, ImmutableArray<SceneMesh>, ImmutableArray<PointLight>)
+  Scene(Camera, ImmutableArray<SceneMesh>, ImmutableArray<Light>)
   Consumed by pass recorders and the Scene inspector panel.
   Render-config (shading mode, viz mode, clear color) stays on UiModel.
   |
@@ -84,11 +84,14 @@ GBuffer pass        -> writes Position, Normal, Albedo (3 color attachments + de
                        Albedo.a = shininess / 256
   |
 Lighting pass       -> reads GBuffer textures via descriptor set 0, writes HDR image
-                       Blinn-Phong: ambient + Lambertian diffuse + specular.
+                       Blinn-Phong: hemispheric ambient (sky/ground) + Lambertian
+                       diffuse + specular, accumulated per light.
                        Material params unpacked from GBuffer alpha channels.
-                       Per-frame point lights live in an SSBO (set 1, binding 0)
-                       packed by LightPacking; lighting.frag accumulates per light.
-                       Push constants hold camera + shading mode + light count.
+                       Per-frame lights (point + directional) live in a single
+                       SSBO (set 1, binding 0) packed by LightPacking — points
+                       first, then directionals; the shader branches on a type
+                       tag in the entry. Push constants hold camera, shading
+                       mode, light count, and the hemispheric ambient pair.
   |
 Tonemap pass        -> reads HDR, writes to swapchain backbuffer
   |
@@ -109,10 +112,15 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `Handle types` | `Gpu/Handles.cs` | Opaque typed indices with generation counters |
 | `VulkanGraphExecutor` | `Gpu/VulkanGraphExecutor.cs` | Translates resolved passes to Vulkan barriers + recordings |
 | `DeferredLighting` | `Papers/DeferredLighting.cs` | Blinn-Phong lighting pass — pure push-constant builder + Vulkan recorder |
+| `Light` | `Scene/Light.cs` | Discriminated union root for `PointLight` and `DirectionalLight` |
 | `PointLight` | `Scene/PointLight.cs` | Immutable point light (position, color, intensity) |
+| `DirectionalLight` | `Scene/DirectionalLight.cs` | Immutable directional light (unit direction, color, intensity) |
+| `Direction` | `Scene/Direction.cs` | Smart-constructed unit-length 3D direction — rejects zero vector |
+| `Intensity` | `Scene/Intensity.cs` | Smart-constructed non-negative scalar |
+| `HemisphericAmbient` | `Scene/HemisphericAmbient.cs` | Sky/ground color pair feeding the hemispheric ambient term |
 | `MaterialParams` | `Scene/MaterialParams.cs` | Blinn-Phong material (specular strength, shininess) — encoding matches GBuffer alpha |
-| `GpuPointLight` | `Scene/GpuPointLight.cs` | std430 GPU layout of a point light (paired with `PointLight` struct in `lighting.frag`) |
-| `LightPacking` | `Scene/LightPacking.cs` | Pure packer from `PointLight` to `GpuPointLight` — canonical SSBO codec |
+| `GpuLight` | `Scene/GpuLight.cs` | std430 GPU layout of a light (paired with `Light` struct in `lighting.frag`); `PositionType.w` is the type tag |
+| `LightPacking` | `Scene/LightPacking.cs` | Pure packer from the `Light` DU to `GpuLight` — partitions points-first then directionals |
 | `Scene` / `SceneMesh` | `Scene/Scene.cs` | Per-frame immutable snapshot (camera, meshes, lights) consumed by pass recorders and the Scene inspector |
 
 ## Build and Run
@@ -146,8 +154,9 @@ src/
                                pipelines, descriptors, graph executor,
                                Allocator, DeviceCapabilities, PushConstants
   RenderLab.Scene/             Scene snapshot, Camera, MeshData, Vertex3D,
-                               PointLight, MaterialParams, FreeCameraController,
-                               OBJ loader
+                               Light DU (PointLight, DirectionalLight),
+                               Direction, Intensity, HemisphericAmbient,
+                               MaterialParams, FreeCameraController, OBJ loader
   RenderLab.Platform.Desktop/  GLFW window wrapper (poll-based)
   RenderLab.Papers/            Pass modules: GBufferPass, DeferredLighting,
                                TonemapPass, DebugVizPass

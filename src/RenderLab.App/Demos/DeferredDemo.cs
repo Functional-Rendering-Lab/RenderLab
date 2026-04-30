@@ -359,7 +359,7 @@ public sealed class DeferredDemo : IDemo
     {
         timestamps.BeginPass(api, cb, "Lighting");
 
-        UploadLightsForCurrentFrame();
+        var lightCount = UploadLightsForCurrentFrame();
 
         var resources = new LightingPassResources(
             RenderPass: lightingRenderPass,
@@ -371,19 +371,19 @@ public sealed class DeferredDemo : IDemo
             Extent: gpu.SwapchainExtent);
 
         var pc = DeferredLighting.BuildPushConstants(
-            scene.Camera, scene.Lights.Length, ui.Shading, ui.LightingOnly);
+            scene.Camera, lightCount, ui.Shading, ui.Ambient, ui.LightingOnly);
         DeferredLighting.Record(api, cb, resources, pc, ui.ClearColor);
 
         timestamps.EndPass(api, cb);
     }
 
-    unsafe void UploadLightsForCurrentFrame()
+    unsafe int UploadLightsForCurrentFrame()
     {
-        var count = Math.Min(scene.Lights.Length, MaxLights);
-        if (count == 0) return;
+        var available = Math.Min(scene.Lights.Length, MaxLights);
+        if (available == 0) return 0;
 
-        var dst = new Span<GpuPointLight>((void*)lightMapped[gpu.CurrentFrame], MaxLights);
-        LightPacking.PackInto(scene.Lights.AsSpan(0, count), dst);
+        var dst = new Span<GpuLight>((void*)lightMapped[gpu.CurrentFrame], MaxLights);
+        return LightPacking.PackInto(scene.Lights.AsSpan(0, available), dst);
     }
 
     void RecordTonemapPass(Vk api, CommandBuffer cb, uint imageIndex)
@@ -504,7 +504,7 @@ public sealed class DeferredDemo : IDemo
     unsafe void CreateLightBuffers()
     {
         int frames = GpuState.MaxFramesInFlight;
-        ulong size = (ulong)(MaxLights * sizeof(GpuPointLight));
+        ulong size = (ulong)(MaxLights * sizeof(GpuLight));
 
         lightBuffers = new Buffer[frames];
         lightAllocs = new Allocation[frames];

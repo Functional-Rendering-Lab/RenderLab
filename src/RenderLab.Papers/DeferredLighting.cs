@@ -17,12 +17,19 @@ namespace RenderLab.Papers;
 public static class DeferredLighting
 {
     public static LightingPushConstants BuildPushConstants(
-        Camera camera, int lightCount, ShadingMode mode, bool lightingOnly = false) => new()
+        Camera camera,
+        int lightCount,
+        ShadingMode mode,
+        HemisphericAmbient ambient,
+        bool lightingOnly = false) => new()
     {
         CameraPos = new Vector4(camera.Position, 1f),
         ShadingMode = (int)mode,
         LightingOnly = lightingOnly ? 1 : 0,
         LightCount = lightCount,
+        Pad0 = 0,
+        AmbientSky = new Vector4(ambient.Sky, 0f),
+        AmbientGround = new Vector4(ambient.Ground, 0f),
     };
 
     public static unsafe void Record(
@@ -70,7 +77,7 @@ public static class DeferredLighting
 /// Vulkan handles the lighting pass needs at record time. Built once per
 /// resize and passed by value into <see cref="DeferredLighting.Record"/>.
 /// <see cref="LightDescriptorSet"/> points at the active frame's SSBO of
-/// packed <see cref="GpuPointLight"/> entries.
+/// packed <see cref="GpuLight"/> entries.
 /// </summary>
 public readonly record struct LightingPassResources(
     RenderPass RenderPass,

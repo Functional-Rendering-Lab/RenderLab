@@ -4,21 +4,28 @@ layout(set = 0, binding = 0) uniform sampler2D gPosition;
 layout(set = 0, binding = 1) uniform sampler2D gNormal;
 layout(set = 0, binding = 2) uniform sampler2D gAlbedo;
 
-// Per-light data. Layout mirrors RenderLab.Scene.GpuPointLight (std430).
-struct PointLight {
-    vec4 positionPad;     // xyz = world position, w unused
+// Per-light data. Layout mirrors RenderLab.Scene.GpuLight (std430).
+// Type tag drives variant: 0 = point (uses positionType.xyz), 1 = directional
+// (uses directionPad.xyz, no falloff). Per-variant fields are zero-filled by
+// the packer for unused cases so this shader can read both unconditionally.
+struct Light {
+    vec4 positionType;    // xyz = world position (point); w = type
+    vec4 directionPad;    // xyz = unit direction FROM light (directional); w unused
     vec4 colorIntensity;  // rgb = color, a = intensity
 };
 
 layout(set = 1, binding = 0, std430) readonly buffer Lights {
-    PointLight lights[];
+    Light lights[];
 };
 
 layout(push_constant) uniform LightParams {
     vec4 cameraPos;
-    int  shadingMode;   // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
-    int  lightingOnly;  // 1 = emit unfiltered light (no albedo, no ambient)
+    int  shadingMode;     // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
+    int  lightingOnly;    // 1 = drop albedo factor (ambient stays on)
     int  lightCount;
+    int  _pad0;           // align next vec4 to 16 bytes (matches C# layout)
+    vec4 ambientSky;      // hemispheric ambient: top hemisphere
+    vec4 ambientGround;   // hemispheric ambient: bottom hemisphere
 } pc;
 
 layout(location = 0) in vec2 uv;
@@ -28,16 +35,33 @@ const float SHININESS_RANGE = 256.0;
 const int MODE_LAMBERT = 0;
 const int MODE_PHONG = 1;
 const int MODE_BLINN_PHONG = 2;
+const int LIGHT_POINT = 0;
+const int LIGHT_DIRECTIONAL = 1;
 
-vec3 shadeLight(PointLight L, vec3 fragPos, vec3 N, vec3 V,
+vec3 shadeLight(Light L, vec3 fragPos, vec3 N, vec3 V,
                 vec3 albedo, float specularStrength, float shininess,
                 bool stripAlbedo)
 {
-    vec3 lightPos   = L.positionPad.xyz;
+    int  type       = int(L.positionType.w);
     vec3 lightColor = L.colorIntensity.rgb;
     float intensity = L.colorIntensity.a;
 
-    vec3 lightDir = normalize(lightPos - fragPos);
+    vec3  lightDir;
+    float attenuation;
+
+    if (type == LIGHT_DIRECTIONAL) {
+        // Direction in the buffer points FROM the light into the scene; the
+        // shading convention wants a vector pointing from the surface TOWARD
+        // the light, so negate.
+        lightDir = -normalize(L.directionPad.xyz);
+        attenuation = 1.0;
+    } else {
+        vec3 lightPos = L.positionType.xyz;
+        lightDir = normalize(lightPos - fragPos);
+        float dist = length(lightPos - fragPos);
+        attenuation = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
+    }
+
     float diff = max(dot(N, lightDir), 0.0);
     vec3 diffuseTerm = stripAlbedo
         ? diff * lightColor * intensity
@@ -59,9 +83,6 @@ vec3 shadeLight(PointLight L, vec3 fragPos, vec3 N, vec3 V,
         float spec = norm * pow(max(dot(N, halfDir), 0.0), shinBP);
         specular = lightFacing * spec * lightColor * intensity * specularStrength;
     }
-
-    float dist = length(lightPos - fragPos);
-    float attenuation = 1.0 / (1.0 + 0.09 * dist + 0.032 * dist * dist);
 
     return (diffuseTerm + specular) * attenuation;
 }
@@ -94,9 +115,13 @@ void main() {
                             specularStrength, shininess, stripAlbedo);
     }
 
-    // Ambient is part of the light contribution and stays on in lightingOnly.
-    // The albedo factor is dropped in lightingOnly so the toggle keeps its
+    // Hemispheric ambient: blend ground→sky along the surface normal's up axis.
+    // N.y in [-1,1] → skyMix in [0,1]. Stays on in lightingOnly mode (per the
+    // existing rule); only the albedo factor drops so the toggle keeps its
     // "no surface color anywhere" meaning.
-    vec3 ambient = stripAlbedo ? vec3(0.05) : 0.05 * albedo;
+    float skyMix = N.y * 0.5 + 0.5;
+    vec3 ambientColor = mix(pc.ambientGround.rgb, pc.ambientSky.rgb, skyMix);
+    vec3 ambient = stripAlbedo ? ambientColor : ambientColor * albedo;
+
     outColor = vec4(ambient + accum, 1.0);
 }

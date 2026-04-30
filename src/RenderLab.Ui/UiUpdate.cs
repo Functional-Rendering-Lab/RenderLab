@@ -1,3 +1,5 @@
+using RenderLab.Scene;
+
 namespace RenderLab.Ui;
 
 /// <summary>
@@ -10,8 +12,10 @@ public static class UiUpdate
     {
         UiMsg.UpdateCamera m          => model with { Camera = m.Camera },
         UiMsg.UpdateLight m           => UpdateLight(model, m.Index, m.Light),
-        UiMsg.AddLight                => model with { Lights = model.Lights.Add(UiModel.DefaultNewLight) },
+        UiMsg.AddPointLight           => model with { Lights = model.Lights.Add(UiModel.DefaultNewPointLight) },
+        UiMsg.AddDirectionalLight     => model with { Lights = model.Lights.Add(UiModel.DefaultNewDirectionalLight) },
         UiMsg.RemoveLight m           => RemoveLight(model, m.Index),
+        UiMsg.UpdateAmbient m         => model with { Ambient = m.Ambient },
         UiMsg.UpdateMaterial m        => model with { Material = m.Material },
         UiMsg.UpdateMeshTransform m   => model with { MeshTransform = m.Transform },
         UiMsg.SetShading m            => model with { Shading = m.Mode },
@@ -21,7 +25,7 @@ public static class UiUpdate
         _                             => model,
     };
 
-    private static UiModel UpdateLight(UiModel model, int index, RenderLab.Scene.PointLight light) =>
+    private static UiModel UpdateLight(UiModel model, int index, Light light) =>
         index >= 0 && index < model.Lights.Length
             ? model with { Lights = model.Lights.SetItem(index, light) }
             : model;

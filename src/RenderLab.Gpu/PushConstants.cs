@@ -19,16 +19,22 @@ public struct GBufferPushConstants
 
 /// <summary>
 /// Per-frame constants for the deferred lighting fullscreen pass. Per-light data
-/// (position, color, intensity) lives in the lighting SSBO at set 1, binding 0;
-/// only the count crosses through here. Layout must match <c>lighting.frag</c>.
+/// (position/direction, color, intensity, type tag) lives in the lighting SSBO
+/// at set 1, binding 0; only the count crosses through here. Hemispheric ambient
+/// is sky/ground colors. <see cref="Pad0"/> aligns the following <see cref="Vector4"/>
+/// to 16 bytes so the C# layout matches the std430 push-constant block in
+/// <c>lighting.frag</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct LightingPushConstants
 {
     public Vector4 CameraPos;
     public int ShadingMode;    // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
-    public int LightingOnly;   // 1 = emit unfiltered light (no albedo, no ambient)
+    public int LightingOnly;   // 1 = drop albedo factor (ambient stays on)
     public int LightCount;
+    public int Pad0;
+    public Vector4 AmbientSky;
+    public Vector4 AmbientGround;
 }
 
 /// <summary>

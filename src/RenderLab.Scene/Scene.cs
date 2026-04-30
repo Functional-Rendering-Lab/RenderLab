@@ -23,4 +23,4 @@ public sealed record SceneMesh(
 public sealed record Scene(
     Camera Camera,
     ImmutableArray<SceneMesh> Meshes,
-    ImmutableArray<PointLight> Lights);
+    ImmutableArray<Light> Lights);

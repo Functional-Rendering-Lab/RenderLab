@@ -47,11 +47,19 @@ public static class ScenePanel
 
         if (ImGui.TreeNodeEx($"Lights ({scene.Lights.Length})", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            ImGui.TextColored(new Vector4(1.0f, 0.9f, 0.5f, 1.0f), "Point lights:");
+            ImGui.TextColored(new Vector4(1.0f, 0.9f, 0.5f, 1.0f), "Lights:");
             for (int i = 0; i < scene.Lights.Length; i++)
             {
-                var l = scene.Lights[i];
-                ImGui.BulletText($"[{i}] pos=({l.Position.X:F2},{l.Position.Y:F2},{l.Position.Z:F2})  intensity={l.Intensity:F2}");
+                switch (scene.Lights[i])
+                {
+                    case PointLight p:
+                        ImGui.BulletText($"[{i}] point   pos=({p.Position.X:F2},{p.Position.Y:F2},{p.Position.Z:F2})  intensity={p.Intensity.Value:F2}");
+                        break;
+                    case DirectionalLight d:
+                        var dv = d.Direction.Value;
+                        ImGui.BulletText($"[{i}] dirlight dir=({dv.X:F2},{dv.Y:F2},{dv.Z:F2})  intensity={d.Intensity.Value:F2}");
+                        break;
+                }
             }
             ImGui.TreePop();
         }

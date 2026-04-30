@@ -36,7 +36,7 @@ code/
     RenderLab.App               desktop composition root (wires everything)
     RenderLab.Gpu               Vulkan bindings, GpuState (impure kernel)
     RenderLab.Graph             pure render graph compiler
-    RenderLab.Scene             immutable scene data (Scene snapshot, Camera, Mesh, Vertex, PointLight, MaterialParams)
+    RenderLab.Scene             immutable scene data (Scene snapshot, Camera, Mesh, Vertex, Light DU, HemisphericAmbient, MaterialParams)
     RenderLab.Papers            paper implementations (DeferredLighting)
     RenderLab.Functional        Optional, Result, Pipe
     RenderLab.Ui                pure Elm-style UI state (Model/Msg/Update/Intent)
