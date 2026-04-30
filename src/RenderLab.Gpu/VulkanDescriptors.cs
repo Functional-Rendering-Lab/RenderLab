@@ -170,6 +170,112 @@ public static class VulkanDescriptors
     }
 
     /// <summary>
+    /// Creates a layout with a single storage buffer at binding 0 (fragment stage).
+    /// Used by the lighting pass to read the per-frame SSBO of point lights.
+    /// </summary>
+    public static unsafe DescriptorSetLayout CreateLightStorageLayout(GpuState state)
+    {
+        var binding = new DescriptorSetLayoutBinding
+        {
+            Binding = 0,
+            DescriptorType = DescriptorType.StorageBuffer,
+            DescriptorCount = 1,
+            StageFlags = ShaderStageFlags.FragmentBit,
+        };
+
+        var layoutInfo = new DescriptorSetLayoutCreateInfo
+        {
+            SType = StructureType.DescriptorSetLayoutCreateInfo,
+            BindingCount = 1,
+            PBindings = &binding,
+        };
+
+        if (state.Vk.CreateDescriptorSetLayout(state.Device, &layoutInfo, null, out var layout) != Result.Success)
+            throw new InvalidOperationException("Failed to create light storage descriptor set layout.");
+
+        return layout;
+    }
+
+    /// <summary>
+    /// Allocates <paramref name="count"/> descriptor sets (one per frame-in-flight)
+    /// each pointing at the matching storage buffer in <paramref name="buffers"/>.
+    /// Used to wire per-frame light SSBOs into the lighting pass.
+    /// </summary>
+    public static unsafe DescriptorSet[] AllocateStorageBufferSets(
+        GpuState state, DescriptorPool pool, DescriptorSetLayout layout,
+        Silk.NET.Vulkan.Buffer[] buffers, ulong range)
+    {
+        uint count = (uint)buffers.Length;
+        var layouts = new DescriptorSetLayout[count];
+        Array.Fill(layouts, layout);
+
+        var sets = new DescriptorSet[count];
+
+        fixed (DescriptorSetLayout* pLayouts = layouts)
+        fixed (DescriptorSet* pSets = sets)
+        {
+            var allocInfo = new DescriptorSetAllocateInfo
+            {
+                SType = StructureType.DescriptorSetAllocateInfo,
+                DescriptorPool = pool,
+                DescriptorSetCount = count,
+                PSetLayouts = pLayouts,
+            };
+
+            if (state.Vk.AllocateDescriptorSets(state.Device, &allocInfo, pSets) != Result.Success)
+                throw new InvalidOperationException("Failed to allocate storage buffer descriptor sets.");
+        }
+
+        for (int i = 0; i < count; i++)
+        {
+            var bufferInfo = new DescriptorBufferInfo
+            {
+                Buffer = buffers[i],
+                Offset = 0,
+                Range = range,
+            };
+
+            var write = new WriteDescriptorSet
+            {
+                SType = StructureType.WriteDescriptorSet,
+                DstSet = sets[i],
+                DstBinding = 0,
+                DstArrayElement = 0,
+                DescriptorType = DescriptorType.StorageBuffer,
+                DescriptorCount = 1,
+                PBufferInfo = &bufferInfo,
+            };
+
+            state.Vk.UpdateDescriptorSets(state.Device, 1, &write, 0, null);
+        }
+
+        return sets;
+    }
+
+    /// <summary>Creates a descriptor pool sized for <paramref name="maxSets"/> storage-buffer sets.</summary>
+    public static unsafe DescriptorPool CreateStorageBufferPool(GpuState state, uint maxSets)
+    {
+        var poolSize = new DescriptorPoolSize
+        {
+            Type = DescriptorType.StorageBuffer,
+            DescriptorCount = maxSets,
+        };
+
+        var poolInfo = new DescriptorPoolCreateInfo
+        {
+            SType = StructureType.DescriptorPoolCreateInfo,
+            MaxSets = maxSets,
+            PoolSizeCount = 1,
+            PPoolSizes = &poolSize,
+        };
+
+        if (state.Vk.CreateDescriptorPool(state.Device, &poolInfo, null, out var pool) != Result.Success)
+            throw new InvalidOperationException("Failed to create storage buffer descriptor pool.");
+
+        return pool;
+    }
+
+    /// <summary>
     /// Allocates <paramref name="count"/> descriptor sets for GBuffer sampling.
     /// Binds position (0), normal (1), and albedo (2) image views with the shared sampler.
     /// </summary>

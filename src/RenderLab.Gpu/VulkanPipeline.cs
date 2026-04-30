@@ -755,6 +755,21 @@ public static class VulkanPipeline
         ShaderModule vertModule, ShaderModule fragModule,
         uint pushConstantSize, ShaderStageFlags pushConstantStage,
         out PipelineLayout pipelineLayout)
+        => CreateFullscreenPipeline(state, renderPass,
+            new[] { descriptorSetLayout },
+            vertModule, fragModule, pushConstantSize, pushConstantStage,
+            out pipelineLayout);
+
+    /// <summary>
+    /// Variant accepting multiple descriptor set layouts. Sets are bound at the
+    /// indices matching their order in <paramref name="descriptorSetLayouts"/>.
+    /// </summary>
+    public static unsafe Pipeline CreateFullscreenPipeline(
+        GpuState state, RenderPass renderPass,
+        DescriptorSetLayout[] descriptorSetLayouts,
+        ShaderModule vertModule, ShaderModule fragModule,
+        uint pushConstantSize, ShaderStageFlags pushConstantStage,
+        out PipelineLayout pipelineLayout)
     {
         var entryPoint = Marshal.StringToHGlobalAnsi("main");
 
@@ -837,27 +852,31 @@ public static class VulkanPipeline
                 PDynamicStates = dynamicStates,
             };
 
-            var layoutInfo = new PipelineLayoutCreateInfo
+            PipelineLayoutCreateInfo layoutInfo;
+            fixed (DescriptorSetLayout* pLayouts = descriptorSetLayouts)
             {
-                SType = StructureType.PipelineLayoutCreateInfo,
-                SetLayoutCount = 1,
-                PSetLayouts = &descriptorSetLayout,
-            };
+                layoutInfo = new PipelineLayoutCreateInfo
+                {
+                    SType = StructureType.PipelineLayoutCreateInfo,
+                    SetLayoutCount = (uint)descriptorSetLayouts.Length,
+                    PSetLayouts = pLayouts,
+                };
 
-            if (pushConstantSize > 0)
-            {
                 var pushConstantRange = new PushConstantRange
                 {
                     StageFlags = pushConstantStage,
                     Offset = 0,
                     Size = pushConstantSize,
                 };
-                layoutInfo.PushConstantRangeCount = 1;
-                layoutInfo.PPushConstantRanges = &pushConstantRange;
-            }
+                if (pushConstantSize > 0)
+                {
+                    layoutInfo.PushConstantRangeCount = 1;
+                    layoutInfo.PPushConstantRanges = &pushConstantRange;
+                }
 
-            if (state.Vk.CreatePipelineLayout(state.Device, &layoutInfo, null, out pipelineLayout) != Result.Success)
-                throw new InvalidOperationException("Failed to create fullscreen pipeline layout.");
+                if (state.Vk.CreatePipelineLayout(state.Device, &layoutInfo, null, out pipelineLayout) != Result.Success)
+                    throw new InvalidOperationException("Failed to create fullscreen pipeline layout.");
+            }
 
             var pipelineInfo = new GraphicsPipelineCreateInfo
             {

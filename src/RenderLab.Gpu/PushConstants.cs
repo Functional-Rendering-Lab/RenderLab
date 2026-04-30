@@ -18,17 +18,17 @@ public struct GBufferPushConstants
 }
 
 /// <summary>
-/// Per-frame constants for the deferred lighting fullscreen pass. Layout must
-/// match <c>lighting.frag</c>.
+/// Per-frame constants for the deferred lighting fullscreen pass. Per-light data
+/// (position, color, intensity) lives in the lighting SSBO at set 1, binding 0;
+/// only the count crosses through here. Layout must match <c>lighting.frag</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct LightingPushConstants
 {
     public Vector4 CameraPos;
-    public Vector4 LightPos;
-    public Vector4 LightColor; // rgb = color, a = intensity
     public int ShadingMode;    // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
     public int LightingOnly;   // 1 = emit unfiltered light (no albedo, no ambient)
+    public int LightCount;
 }
 
 /// <summary>

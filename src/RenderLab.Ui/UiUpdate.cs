@@ -9,7 +9,9 @@ public static class UiUpdate
     public static UiModel Apply(UiModel model, UiMsg msg) => msg switch
     {
         UiMsg.UpdateCamera m          => model with { Camera = m.Camera },
-        UiMsg.UpdateLight m           => model with { KeyLight = m.Light },
+        UiMsg.UpdateLight m           => UpdateLight(model, m.Index, m.Light),
+        UiMsg.AddLight                => model with { Lights = model.Lights.Add(UiModel.DefaultNewLight) },
+        UiMsg.RemoveLight m           => RemoveLight(model, m.Index),
         UiMsg.UpdateMaterial m        => model with { Material = m.Material },
         UiMsg.UpdateMeshTransform m   => model with { MeshTransform = m.Transform },
         UiMsg.SetShading m            => model with { Shading = m.Mode },
@@ -18,6 +20,16 @@ public static class UiUpdate
         UiMsg.SetClearColor m         => model with { ClearColor = m.Color },
         _                             => model,
     };
+
+    private static UiModel UpdateLight(UiModel model, int index, RenderLab.Scene.PointLight light) =>
+        index >= 0 && index < model.Lights.Length
+            ? model with { Lights = model.Lights.SetItem(index, light) }
+            : model;
+
+    private static UiModel RemoveLight(UiModel model, int index) =>
+        index >= 0 && index < model.Lights.Length
+            ? model with { Lights = model.Lights.RemoveAt(index) }
+            : model;
 
     public static UiModel ApplyAll(UiModel model, IEnumerable<UiMsg> msgs)
     {

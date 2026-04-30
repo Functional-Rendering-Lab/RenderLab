@@ -8,21 +8,21 @@ namespace RenderLab.Papers;
 
 /// <summary>
 /// Deferred lighting pass with selectable shading model (Lambertian, Phong,
-/// Blinn-Phong). The pure half maps an immutable <see cref="Camera"/>,
-/// <see cref="PointLight"/>, and <see cref="ShadingMode"/> into the
-/// push-constant layout consumed by <c>lighting.frag</c>; the impure half
-/// records the fullscreen draw against a pre-built set of Vulkan resources.
+/// Blinn-Phong). The pure half maps an immutable <see cref="Camera"/>, light
+/// count, and <see cref="ShadingMode"/> into the push-constant layout consumed
+/// by <c>lighting.frag</c>; per-light data lives in an SSBO (set 1, binding 0)
+/// packed by <see cref="LightPacking"/>. The impure half records the fullscreen
+/// draw against a pre-built set of Vulkan resources.
 /// </summary>
 public static class DeferredLighting
 {
     public static LightingPushConstants BuildPushConstants(
-        Camera camera, PointLight light, ShadingMode mode, bool lightingOnly = false) => new()
+        Camera camera, int lightCount, ShadingMode mode, bool lightingOnly = false) => new()
     {
         CameraPos = new Vector4(camera.Position, 1f),
-        LightPos = new Vector4(light.Position, 1f),
-        LightColor = new Vector4(light.Color, light.Intensity),
         ShadingMode = (int)mode,
         LightingOnly = lightingOnly ? 1 : 0,
+        LightCount = lightCount,
     };
 
     public static unsafe void Record(
@@ -53,9 +53,9 @@ public static class DeferredLighting
         var scissor = new Rect2D(new Offset2D(0, 0), r.Extent);
         vk.CmdSetScissor(cb, 0, 1, &scissor);
 
-        var ds = r.GBufferDescriptorSet;
+        var sets = stackalloc DescriptorSet[2] { r.GBufferDescriptorSet, r.LightDescriptorSet };
         vk.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, r.PipelineLayout,
-            0, 1, &ds, 0, null);
+            0, 2, sets, 0, null);
 
         vk.CmdPushConstants(cb, r.PipelineLayout, ShaderStageFlags.FragmentBit,
             0, (uint)Marshal.SizeOf<LightingPushConstants>(), &pc);
@@ -69,6 +69,8 @@ public static class DeferredLighting
 /// <summary>
 /// Vulkan handles the lighting pass needs at record time. Built once per
 /// resize and passed by value into <see cref="DeferredLighting.Record"/>.
+/// <see cref="LightDescriptorSet"/> points at the active frame's SSBO of
+/// packed <see cref="GpuPointLight"/> entries.
 /// </summary>
 public readonly record struct LightingPassResources(
     RenderPass RenderPass,
@@ -76,4 +78,5 @@ public readonly record struct LightingPassResources(
     Pipeline Pipeline,
     PipelineLayout PipelineLayout,
     DescriptorSet GBufferDescriptorSet,
+    DescriptorSet LightDescriptorSet,
     Extent2D Extent);

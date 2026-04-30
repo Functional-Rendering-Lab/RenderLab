@@ -6,7 +6,9 @@ namespace RenderLab.Scene;
 /// Immutable point light. Position is in world space; <c>Color</c> is the
 /// per-channel emission tint and <c>Intensity</c> is the linear scalar applied
 /// to it before lighting accumulation. Attenuation constants currently live in
-/// the lighting shader and are not modelled here.
+/// the lighting shader and are not modelled here. The GPU-side projection of
+/// this record lives in <see cref="GpuPointLight"/>; <see cref="LightPacking"/>
+/// is the canonical packer.
 /// </summary>
 public sealed record PointLight(
     Vector3 Position,

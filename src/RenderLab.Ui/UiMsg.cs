@@ -13,7 +13,9 @@ namespace RenderLab.Ui;
 public abstract record UiMsg
 {
     public sealed record UpdateCamera(FreeCameraState Camera) : UiMsg;
-    public sealed record UpdateLight(PointLight Light) : UiMsg;
+    public sealed record UpdateLight(int Index, PointLight Light) : UiMsg;
+    public sealed record AddLight() : UiMsg;
+    public sealed record RemoveLight(int Index) : UiMsg;
     public sealed record UpdateMaterial(MaterialParams Material) : UiMsg;
     public sealed record UpdateMeshTransform(Transform Transform) : UiMsg;
     public sealed record SetShading(ShadingMode Mode) : UiMsg;

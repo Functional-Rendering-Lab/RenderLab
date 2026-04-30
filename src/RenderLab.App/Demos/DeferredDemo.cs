@@ -33,6 +33,7 @@ public sealed class DeferredDemo : IDemo
     const float RotateSensitivity = 0.005f;
     const float PanSensitivity = 0.01f;
     const float ZoomSensitivity = 0.3f;
+    const int MaxLights = 64;
 
     // ─── Owned resources ─────────────────────────────────────────────
     DesktopWindow window = null!;
@@ -47,7 +48,7 @@ public sealed class DeferredDemo : IDemo
 
     // Shaders & render passes
     RenderPass gbufferRenderPass, lightingRenderPass, tonemapRenderPass, overlayRenderPass;
-    DescriptorSetLayout gbufferDsLayout, singleDsLayout;
+    DescriptorSetLayout gbufferDsLayout, singleDsLayout, lightStorageDsLayout;
     Pipeline gbufferPipeline, lightingPipeline, tonemapPipeline, debugVizPipeline;
     PipelineLayout gbufferPipelineLayout, lightingPipelineLayout, tonemapPipelineLayout, debugVizPipelineLayout;
 
@@ -69,11 +70,17 @@ public sealed class DeferredDemo : IDemo
     Framebuffer gbufferFramebuffer, lightingFramebuffer;
     Framebuffer[] swapchainFramebuffers = [];
     Framebuffer[] overlayFramebuffers = [];
-    DescriptorPool gbufferDescPool, tonemapDescPool, debugVizDescPool;
+    DescriptorPool gbufferDescPool, tonemapDescPool, debugVizDescPool, lightDescPool;
     DescriptorSet[] gbufferDescSets = [];
     DescriptorSet[] tonemapDescSets = [];
     DescriptorSet[] debugVizPositionSets = [], debugVizNormalSets = [], debugVizAlbedoSets = [];
     DescriptorSet[] debugVizDepthSets = [], debugVizHdrSets = [];
+
+    // Per-frame point light SSBOs (persistently mapped, host-visible).
+    Buffer[] lightBuffers = [];
+    Allocation[] lightAllocs = [];
+    IntPtr[] lightMapped = [];
+    DescriptorSet[] lightDescSets = [];
 
     // ImGui & timestamps
     VulkanImGui imgui = null!;
@@ -234,6 +241,7 @@ public sealed class DeferredDemo : IDemo
         // ─── Descriptor set layouts ──────────────────────────────────
         gbufferDsLayout = VulkanDescriptors.CreateGBufferSamplerLayout(gpu);
         singleDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
+        lightStorageDsLayout = VulkanDescriptors.CreateLightStorageLayout(gpu);
 
         // ─── Pipelines ───────────────────────────────────────────────
         gbufferPipeline = VulkanPipeline.CreateGBufferPipeline(
@@ -243,7 +251,9 @@ public sealed class DeferredDemo : IDemo
             out gbufferPipelineLayout);
 
         lightingPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, lightingRenderPass, gbufferDsLayout, fsVertModule, lightingFragModule,
+            gpu, lightingRenderPass,
+            new[] { gbufferDsLayout, lightStorageDsLayout },
+            fsVertModule, lightingFragModule,
             (uint)Marshal.SizeOf<LightingPushConstants>(), ShaderStageFlags.FragmentBit,
             out lightingPipelineLayout);
 
@@ -275,6 +285,7 @@ public sealed class DeferredDemo : IDemo
 
         // ─── Transient resources ─────────────────────────────────────
         sampler = VulkanImage.CreateSampler(gpu);
+        CreateLightBuffers();
         CreateTransientResources();
 
         // ─── ImGui + GPU timestamps ──────────────────────────────────
@@ -348,18 +359,31 @@ public sealed class DeferredDemo : IDemo
     {
         timestamps.BeginPass(api, cb, "Lighting");
 
+        UploadLightsForCurrentFrame();
+
         var resources = new LightingPassResources(
             RenderPass: lightingRenderPass,
             Framebuffer: lightingFramebuffer,
             Pipeline: lightingPipeline,
             PipelineLayout: lightingPipelineLayout,
             GBufferDescriptorSet: gbufferDescSets[gpu.CurrentFrame],
+            LightDescriptorSet: lightDescSets[gpu.CurrentFrame],
             Extent: gpu.SwapchainExtent);
 
-        var pc = DeferredLighting.BuildPushConstants(scene.Camera, scene.Lights[0], ui.Shading, ui.LightingOnly);
+        var pc = DeferredLighting.BuildPushConstants(
+            scene.Camera, scene.Lights.Length, ui.Shading, ui.LightingOnly);
         DeferredLighting.Record(api, cb, resources, pc, ui.ClearColor);
 
         timestamps.EndPass(api, cb);
+    }
+
+    unsafe void UploadLightsForCurrentFrame()
+    {
+        var count = Math.Min(scene.Lights.Length, MaxLights);
+        if (count == 0) return;
+
+        var dst = new Span<GpuPointLight>((void*)lightMapped[gpu.CurrentFrame], MaxLights);
+        LightPacking.PackInto(scene.Lights.AsSpan(0, count), dst);
     }
 
     void RecordTonemapPass(Vk api, CommandBuffer cb, uint imageIndex)
@@ -476,6 +500,45 @@ public sealed class DeferredDemo : IDemo
     }
 
     // ─── Resource management ─────────────────────────────────────────
+
+    unsafe void CreateLightBuffers()
+    {
+        int frames = GpuState.MaxFramesInFlight;
+        ulong size = (ulong)(MaxLights * sizeof(GpuPointLight));
+
+        lightBuffers = new Buffer[frames];
+        lightAllocs = new Allocation[frames];
+        lightMapped = new IntPtr[frames];
+
+        for (int i = 0; i < frames; i++)
+        {
+            var (buf, alloc) = gpu.Allocator.AllocateBuffer(
+                gpu, size, BufferUsageFlags.StorageBufferBit, MemoryIntent.CpuToGpu);
+            lightBuffers[i] = buf;
+            lightAllocs[i] = alloc;
+            lightMapped[i] = (IntPtr)gpu.Allocator.Map(gpu, alloc);
+        }
+
+        lightDescPool = VulkanDescriptors.CreateStorageBufferPool(gpu, (uint)frames);
+        lightDescSets = VulkanDescriptors.AllocateStorageBufferSets(
+            gpu, lightDescPool, lightStorageDsLayout, lightBuffers, size);
+    }
+
+    unsafe void DestroyLightBuffers()
+    {
+        if (lightBuffers.Length == 0) return;
+
+        vk.DestroyDescriptorPool(gpu.Device, lightDescPool, null);
+        for (int i = 0; i < lightBuffers.Length; i++)
+        {
+            gpu.Allocator.Unmap(gpu, lightAllocs[i]);
+            VulkanBuffer.Destroy(gpu, lightBuffers[i], lightAllocs[i]);
+        }
+        lightBuffers = [];
+        lightAllocs = [];
+        lightMapped = [];
+        lightDescSets = [];
+    }
 
     void CreateTransientResources()
     {
@@ -626,7 +689,7 @@ public sealed class DeferredDemo : IDemo
         Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
         Meshes: ImmutableArray.Create(
             new SceneMesh("Sphere", sphereMesh, ui.MeshTransform, ui.Material)),
-        Lights: ImmutableArray.Create(ui.KeyLight));
+        Lights: ui.Lights);
 
     // ─── Cleanup ─────────────────────────────────────────────────────
 
@@ -637,6 +700,7 @@ public sealed class DeferredDemo : IDemo
         timestamps.Dispose();
         imgui.Dispose();
         DestroyTransientResources();
+        DestroyLightBuffers();
 
         vk.DestroySampler(gpu.Device, sampler, null);
         vk.DestroyPipeline(gpu.Device, gbufferPipeline, null);
@@ -653,6 +717,7 @@ public sealed class DeferredDemo : IDemo
         vk.DestroyRenderPass(gpu.Device, overlayRenderPass, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, gbufferDsLayout, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
+        vk.DestroyDescriptorSetLayout(gpu.Device, lightStorageDsLayout, null);
 
         VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
         VulkanBuffer.Destroy(gpu, indexBuffer, indexAlloc);
