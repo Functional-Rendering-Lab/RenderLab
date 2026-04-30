@@ -40,6 +40,10 @@ GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Alloca
 
 `Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale.
 
+### Swapchain present mode (lab policy)
+
+`VulkanSwapchain` deliberately picks `FIFO_RELAXED` over `MAILBOX` and uses exactly `capabilities.MinImageCount` (no `+1`). The AAA default — Mailbox plus an extra image — *hides* frame-time overruns by buffering ahead and replacing un-presented frames; in a research lab that signal is what we want to see. Under this configuration a frame that misses the 16.67 ms budget tears on that frame instead of being smoothed over, and the negotiated image count is logged at startup. `FIFO` (universally supported) is the fallback. See `blogs/ideas/field-notes/swapchain-present-mode/draft.md` for the full reasoning. Note: this couples CPU and GPU more tightly than a pipelined `+1` setup, so technique cost should be measured with GPU timestamp queries (`GpuTimestamps`), not wall-clock frame time.
+
 ## Per-Frame Data Flow
 
 ```
@@ -79,10 +83,12 @@ GBuffer pass        -> writes Position, Normal, Albedo (3 color attachments + de
                        Alpha channels carry material: Normal.a = specularStrength,
                        Albedo.a = shininess / 256
   |
-Lighting pass       -> reads GBuffer textures via descriptor set, writes HDR image
+Lighting pass       -> reads GBuffer textures via descriptor set 0, writes HDR image
                        Blinn-Phong: ambient + Lambertian diffuse + specular.
                        Material params unpacked from GBuffer alpha channels.
-                       Currently single PointLight via push constants.
+                       Per-frame point lights live in an SSBO (set 1, binding 0)
+                       packed by LightPacking; lighting.frag accumulates per light.
+                       Push constants hold camera + shading mode + light count.
   |
 Tonemap pass        -> reads HDR, writes to swapchain backbuffer
   |
@@ -105,6 +111,8 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `DeferredLighting` | `Papers/DeferredLighting.cs` | Blinn-Phong lighting pass — pure push-constant builder + Vulkan recorder |
 | `PointLight` | `Scene/PointLight.cs` | Immutable point light (position, color, intensity) |
 | `MaterialParams` | `Scene/MaterialParams.cs` | Blinn-Phong material (specular strength, shininess) — encoding matches GBuffer alpha |
+| `GpuPointLight` | `Scene/GpuPointLight.cs` | std430 GPU layout of a point light (paired with `PointLight` struct in `lighting.frag`) |
+| `LightPacking` | `Scene/LightPacking.cs` | Pure packer from `PointLight` to `GpuPointLight` — canonical SSBO codec |
 | `Scene` / `SceneMesh` | `Scene/Scene.cs` | Per-frame immutable snapshot (camera, meshes, lights) consumed by pass recorders and the Scene inspector |
 
 ## Build and Run

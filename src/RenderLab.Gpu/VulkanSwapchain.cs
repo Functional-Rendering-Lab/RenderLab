@@ -8,6 +8,14 @@ namespace RenderLab.Gpu;
 /// <see cref="GpuState"/> in place — the swapchain handles, images, and views
 /// live on the kernel.
 /// </summary>
+/// <remarks>
+/// Present mode and image count are chosen for a lab/measurement context, not
+/// AAA smoothness. We prefer <c>FIFO_RELAXED</c> over <c>MAILBOX</c> and use
+/// exactly <c>capabilities.MinImageCount</c> (no <c>+1</c>) so that frame-time
+/// overruns are visible (tearing on the missed frame) instead of being hidden
+/// by extra buffering. See <c>blogs/ideas/field-notes/swapchain-present-mode/</c>
+/// for the decision record.
+/// </remarks>
 public static class VulkanSwapchain
 {
     public static unsafe void Create(GpuState state, uint width = 0, uint height = 0)
@@ -21,9 +29,13 @@ public static class VulkanSwapchain
         var presentMode = ChoosePresentMode(state);
         var extent = ChooseExtent(capabilities, width, height);
 
-        uint imageCount = capabilities.MinImageCount + 1;
+        // Lab policy: use the minimum the surface supports, no +1. Extra
+        // buffering would hide frame-time overruns; we want them visible.
+        uint imageCount = capabilities.MinImageCount;
         if (capabilities.MaxImageCount > 0 && imageCount > capabilities.MaxImageCount)
             imageCount = capabilities.MaxImageCount;
+
+        Console.WriteLine($"  Swapchain: present mode = {presentMode}, image count = {imageCount} (min = {capabilities.MinImageCount}, max = {capabilities.MaxImageCount})");
 
         var createInfo = new SwapchainCreateInfoKHR
         {
@@ -134,6 +146,10 @@ public static class VulkanSwapchain
         return formats[0];
     }
 
+    // Lab policy: prefer FIFO_RELAXED so a missed frame tears on that frame
+    // (loud, visible feedback) instead of being smoothed over by Mailbox or
+    // double-displayed under strict FIFO. FIFO is the guaranteed fallback —
+    // every Vulkan implementation must support it.
     private static unsafe PresentModeKHR ChoosePresentMode(GpuState state)
     {
         uint modeCount = 0;
@@ -144,7 +160,7 @@ public static class VulkanSwapchain
 
         foreach (var mode in modes)
         {
-            if (mode == PresentModeKHR.MailboxKhr)
+            if (mode == PresentModeKHR.FifoRelaxedKhr)
                 return mode;
         }
 
