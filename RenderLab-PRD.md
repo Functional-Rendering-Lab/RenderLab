@@ -35,7 +35,7 @@ Implementing rendering papers today requires either:
 | G3 | **Vulkan backend via Silk.NET** | Direct Vulkan API access through Silk.NET bindings. No intermediate abstraction that hides pipeline state, synchronization, or resource transitions. |
 | G4 | **wgpu-ready architecture** | The Gpu module boundary is designed so that a wgpu-native backend can be added later without changing any pure layer above it. |
 | G5 | **Zero-allocation command recording** | Render commands are value types recorded into pooled buffers. Frame-to-frame steady state produces no GC pressure. |
-| G6 | **Minimal scope** | No asset pipeline, no editor, no ECS, no physics, no audio. Meshes load from OBJ/glTF. Textures load from KTX2/PNG. That's it. |
+| G6 | **Minimal scope** | No ECS, no physics, no audio. A lab editor exists only to shorten the iterate-on-a-paper loop: shader hot-reload, scene inspector, and mesh import (OBJ/glTF). Textures load from KTX2/PNG. Nothing beyond what the paper workflow needs. |
 
 ---
 
@@ -43,8 +43,7 @@ Implementing rendering papers today requires either:
 
 - **Production-quality renderer.** Performance matters for profiling papers, not for shipping games.
 - **Material system.** Papers define their own shaders and pipeline state directly.
-- **Scene editor or GUI tooling.** ImGui debug overlays only.
-- **Shader hot-reload at launch.** Desirable later but not blocking.
+- **General-purpose scene editor.** The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes). It is not a content-authoring tool — no gizmos beyond what inspection needs, no asset database, no prefabs, no scene serialization format beyond what the lab itself reads.
 - **Multi-GPU or ray tracing extensions.** Out of scope for v1.
 
 ---
@@ -275,11 +274,16 @@ RenderLab.sln
 
 ### M4 — Basic Lighting
 **Deliverable:** A fully lit scene in the deferred lighting pass. Sequenced to match the Lighting block of the blog roadmap: Phong/Blinn-Phong surface response, multiple point lights with attenuation and light volumes, then directional lights plus hemispheric ambient. Each step produces a rendered output and a companion blog post.
-**Validates:** The lighting pass as a composition surface — per-light accumulation, material parameters via push constants or SSBOs, and the motivation gap that makes SSAO worth implementing (flat ambient is visibly wrong).
+**Validates:** The lighting pass as a composition surface — per-light accumulation, material parameters via push constants or SSBOs.
 
-### M5 — First Paper: SSAO
-**Deliverable:** Implement one concrete paper from the SSAO block. Starting point: Crytek 2007 (Mittring) as the intuition-building baseline, progressing to HBAO (Bavoil & Sainz) and eventually GTAO (Jimenez et al.). Compare output against reference images from each paper.
-**Validates:** The full paper-first workflow. A paper author adds a file, writes pure functions, sees results. The ambient occlusion term plugs into the M4 lighting pass, closing the foundation → lighting → SSAO arc.
+### M5 — Lab as Editor
+**Deliverable:** Turn the renderer into an interactive lab editor. Three capabilities, each with a companion blog post in the Editor block:
+
+1. **Shader hot-reload** — file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes.
+2. **Scene inspector** — the existing ScenePanel grows into a real inspector. Edit transforms, lights, and material parameters live. The pure Scene snapshot remains the source of truth; the editor is an Elm-style Model/Msg/Update layer producing intents.
+3. **Mesh import pipeline** — load real 3D models from glTF and OBJ. The import boundary is a pure transformation from file bytes to immutable `Mesh` records; assets stay data, not engine objects.
+
+**Validates:** The lab is no longer a hardcoded scene runner. The paper-first workflow gets its iteration loop: change a shader, see it recompile; tweak a light, see it move; drop in a glTF, see it render. This is the foundation the next round of paper implementations will be built on.
 
 ---
 
