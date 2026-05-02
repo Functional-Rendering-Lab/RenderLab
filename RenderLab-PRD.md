@@ -1,6 +1,6 @@
 # RenderLab — Product Requirement Document
 
-**Version:** 0.2
+**Version:** 0.3
 **Author:** Andrés (TutanDev)
 **Date:** 2026-05-02
 **Status:** Draft
@@ -43,7 +43,7 @@ Implementing rendering papers today requires either:
 
 - **Production-quality renderer.** Performance matters for profiling papers, not for shipping games.
 - **Material *system*.** Papers define their own shaders and pipeline state directly. Material *assets* exist as a closed discriminated union (`BlinnPhongMaterial` today, more cases as papers need them) — they're parameter bundles the editor can edit, not a shader graph or permutation engine.
-- **General-purpose scene editor.** The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes). It is not a content-authoring tool — no gizmos beyond what inspection needs, no prefabs, no scene serialization format beyond what the lab itself reads. An in-memory **asset registry** keeps imported meshes/textures/materials addressable by typed id during a session; nothing on disk.
+- **General-purpose scene editor.** The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes). It is not a content-authoring tool — no gizmos beyond what inspection needs, no prefabs, no scene composition / nesting. The lab does ship its own **scene file format** (`*.scene.json`) inside a **Project** folder (see M6), which is the only serialization format it reads or writes; no other format is supported.
 - **Multi-GPU or ray tracing extensions.** Out of scope for v1.
 
 ---
@@ -301,11 +301,25 @@ RenderLab.sln
 ### M5 — Lab as Editor
 **Deliverable:** Turn the renderer into an interactive lab editor. Three capabilities, each with a companion blog post in the Editor block:
 
-1. **Shader hot-reload** — file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes. *(open)*
+1. **Shader hot-reload** — file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes. *(open — moved to M7)*
 2. **Scene inspector** — the existing ScenePanel grows into a real inspector. Edit transforms (including rotation), lights, and material parameters live. The pure Scene snapshot remains the source of truth; the editor is an Elm-style Model/Msg/Update layer producing intents. *(landed)*
 3. **Asset import + registry** — load real 3D models from glTF (and OBJ). The pure `GltfLoader` returns an `Import` blueprint of meshes, textures, materials, and drawable seeds; the shell-side `AssetRegistry` walks the blueprint in dependency order and rewrites blueprint indices into typed ids. An asset browser lists every registered mesh/texture/material with reference counts and per-row remove buttons; per-drawable mesh/material/albedo-texture swaps land in the inspector. Removal is reference-safe (refused with a log if anything still points at the asset) and frees GPU resources via a `MaxFramesInFlight + 1` deferred-destroy queue. *(landed)*
 
-**Validates:** The lab is no longer a hardcoded scene runner. The paper-first workflow gets its iteration loop: change a shader, see it recompile (TBD); tweak a light, see it move; drop in a glTF, see it render. This is the foundation the next round of paper implementations will be built on.
+**Validates:** The lab is no longer a hardcoded scene runner. The paper-first workflow gets its iteration loop: tweak a light, see it move; drop in a glTF, see it render. Scene inspector + asset import landed; shader hot-reload deferred to M7 so the editor work can pivot to persistence (M6).
+
+### M6 — Project as the Runnable Unit
+**Deliverable:** The engine's runnable workspace becomes a **Project** — a folder on disk with a `project.json` manifest, a mandatory `assets/` subfolder, and one-or-more `*.scene.json` files. The current `triangle` / `gbuffer` / `deferred` demos become starter projects shipped in `code/projects/`. `Program.cs` dispatches on a project path argv, not a demo name. A new typed `IPipeline<TContent, TConfig>` interface (in a new `RenderLab.Pipelines` assembly) replaces `IDemo`; a new pure `RenderLab.Project` assembly owns the manifest + `SceneDocument` types and JSON serializers (System.Text.Json — no new dep).
+
+Phased landing:
+- **M6.1 — Engine restructure + read-only projects.** New assemblies, demos refactored into pipelines, starter projects ship with the repo. Application class owns window/GPU/loop. `dotnet run -- code/projects/<name>` launches each.
+- **M6.2 — Save.** `File → Save Scene` round-trips the active scene (drawables + materials + camera + lights + render config) back to its `*.scene.json`. Procedural assets (sphere, cube, checker) persist symbolically — no PNG/OBJ regeneration.
+- **M6.3 — Multi-scene UX + per-user settings.** Scene switcher submenu, `New Project…`, plus a per-user editor file (`%LOCALAPPDATA%\RenderLab\editor.json`) for last-open project / scene / panel visibility.
+
+**Validates:** Every runnable workspace is on disk and version-controllable. The paper-first workflow gets the missing half of its iteration loop: edits persist; sessions resume; sample setups ship with the engine. Functional-Core/Imperative-Shell holds — the pure `SceneDocument` builder mirrors the existing `IAssetCatalog` / `IGpuAssetResolver` split.
+
+### M7 — Shader Hot-Reload (was M5 ¶1)
+**Deliverable:** File-watch GLSL sources, recompile to SPIR-V, swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes.
+**Validates:** The last missing leg of the editor iteration loop — change a shader, see it recompile.
 
 ---
 
