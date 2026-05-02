@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
+    <PackageReference Include="SharpGLTF.Core" Version="1.0.5" />
+    <PackageReference Include="StbImageSharp" Version="2.30.15" />
   </ItemGroup>
 
   <PropertyGroup>

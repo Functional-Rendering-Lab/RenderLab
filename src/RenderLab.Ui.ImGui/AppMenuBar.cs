@@ -18,6 +18,11 @@ public static class AppMenuBar
 
         if (ImGui.BeginMenu("File"))
         {
+            // No file picker yet — opens a hardcoded sample. Swap in a
+            // real dialog when the lab needs arbitrary glTF input.
+            if (ImGui.MenuItem("Import glTF (sample)"))
+                dispatch(new AppUiMsg.RequestImportGltf("assets/box-textured.glb"));
+            ImGui.Separator();
             if (ImGui.MenuItem("Exit", "Alt+F4"))
                 dispatch(new AppUiMsg.RequestExit());
             ImGui.EndMenu();

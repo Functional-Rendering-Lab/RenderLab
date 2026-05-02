@@ -540,7 +540,17 @@ public sealed class DeferredDemo : IDemo
         foreach (var msg in viewResult.Messages)
             if (msg is UiMsg.UpdateMaterialAsset edit)
                 assets.UpdateMaterial(edit.Id, edit.Asset);
+
+        // glTF imports are similarly impure: load + register on the registry,
+        // then synthesise AddDrawable messages so the imported nodes appear in
+        // the editor list without bypassing the reducer.
+        var extraMessages = new List<UiMsg>();
+        foreach (var amsg in viewResult.AppMessages)
+            if (amsg is AppUiMsg.RequestImportGltf import)
+                extraMessages.AddRange(HandleImport(import.Path));
+
         ui = UiUpdate.ApplyAll(ui, viewResult.Messages);
+        ui = UiUpdate.ApplyAll(ui, extraMessages);
         app = AppUiUpdate.ApplyAll(app, viewResult.AppMessages);
         lastIntent = viewResult.Intent;
 
@@ -743,6 +753,28 @@ public sealed class DeferredDemo : IDemo
             Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
             Drawables: drawables.MoveToImmutable(),
             Lights: ui.Lights);
+    }
+
+    // ─── glTF import handler ─────────────────────────────────────────
+
+    IEnumerable<UiMsg> HandleImport(string path)
+    {
+        var resolved = Path.IsPathRooted(path) ? path : Path.Combine(AppContext.BaseDirectory, path);
+        var result = assets.ImportGltf(resolved);
+        return result.Match<IEnumerable<UiMsg>>(
+            ok: r =>
+            {
+                Console.WriteLine($"  glTF: imported {r.Meshes.Length} mesh(es), {r.Textures.Length} texture(s), {r.Materials.Length} material(s), {r.Drawables.Length} drawable(s) from {path}");
+                return r.Drawables.Select(d => new UiMsg.AddDrawable(
+                    d.Name, d.Mesh,
+                    new Transform(d.Position, d.Scale),
+                    d.Material));
+            },
+            error: e =>
+            {
+                Console.WriteLine($"  glTF import failed for {resolved}: {e.Message}");
+                return Array.Empty<UiMsg>();
+            });
     }
 
     // ─── Procedural assets ───────────────────────────────────────────

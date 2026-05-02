@@ -11,4 +11,8 @@ public abstract record AppUiMsg
     public sealed record TogglePanel(PanelId Id) : AppUiMsg;
     public sealed record SetPanelVisible(PanelId Id, bool Visible) : AppUiMsg;
     public sealed record RequestExit : AppUiMsg;
+    /// <summary>One-shot import trigger (registry side-effect). The reducer
+    /// passes through; the shell calls <c>AssetRegistry.ImportGltf</c> and
+    /// dispatches <c>UiMsg.AddDrawable</c> for each imported drawable.</summary>
+    public sealed record RequestImportGltf(string Path) : AppUiMsg;
 }

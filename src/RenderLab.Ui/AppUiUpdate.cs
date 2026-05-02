@@ -12,6 +12,8 @@ public static class AppUiUpdate
         AppUiMsg.RequestExit         => model with { RequestedExit = true },
         AppUiMsg.TogglePanel m       => model.WithPanelVisible(m.Id, !model.IsPanelVisible(m.Id)),
         AppUiMsg.SetPanelVisible m   => model.WithPanelVisible(m.Id, m.Visible),
+        // RequestImportGltf is a registry side-effect; the shell handles it.
+        AppUiMsg.RequestImportGltf   => model,
         _                            => model,
     };
 

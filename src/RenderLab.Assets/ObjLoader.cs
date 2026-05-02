@@ -103,8 +103,8 @@ public static class ObjLoader
         var idx = new List<uint>();
 
         // 6 faces, each with unique normals.
-        // right × up = normal; triangles wound CW from outside to match the
-        // GBuffer pipeline's FrontFace.Clockwise + back-face cull.
+        // right × up = normal; triangles wound CCW from outside to match the
+        // glTF / OBJ convention the GBuffer pipeline expects.
         ReadOnlySpan<(Vector3 normal, Vector3 right, Vector3 up)> faces =
         [
             ( Vector3.UnitZ,  Vector3.UnitX, Vector3.UnitY),   // front:  X × Y =  Z ✓
@@ -123,7 +123,7 @@ public static class ObjLoader
             verts.Add(new Vertex3D(center + r * 0.5f - u * 0.5f, n, new Vector2(1, 0)));
             verts.Add(new Vertex3D(center + r * 0.5f + u * 0.5f, n, new Vector2(1, 1)));
             verts.Add(new Vertex3D(center - r * 0.5f + u * 0.5f, n, new Vector2(0, 1)));
-            idx.AddRange([b, b + 2, b + 1, b, b + 3, b + 2]);
+            idx.AddRange([b, b + 1, b + 2, b, b + 2, b + 3]);
         }
 
         return new MeshData([.. verts], [.. idx]);
@@ -164,8 +164,8 @@ public static class ObjLoader
                 uint bl = (uint)((i + 1) * ringSize + j);
                 uint br = bl + 1;
 
-                idx.AddRange([tl, bl, tr]);
-                idx.AddRange([tr, bl, br]);
+                idx.AddRange([tl, tr, bl]);
+                idx.AddRange([tr, br, bl]);
             }
         }
 

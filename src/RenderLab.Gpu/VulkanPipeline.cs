@@ -651,11 +651,14 @@ public static class VulkanPipeline
                     PolygonMode = PolygonMode.Fill,
                     LineWidth = 1.0f,
                     CullMode = CullModeFlags.BackBit,
-                    // Projection matrix flips Y for Vulkan clip space, which
-                    // reverses triangle winding in screen space. Meshes
-                    // authored with CCW outward faces must be declared CW here
-                    // so the rasterizer culls the correct side.
-                    FrontFace = FrontFace.Clockwise,
+                    // glTF convention: triangles are CCW-from-outside. The
+                    // projection matrix flips Y for Vulkan clip space, which
+                    // reverses winding in screen space — so what arrives at the
+                    // rasterizer as "front" is the screen-space CW triangle.
+                    // Declaring CounterClockwise here means "the original
+                    // (pre-flip) CCW face is the front", which is exactly what
+                    // glTF (and OBJ, and our procedural meshes) author.
+                    FrontFace = FrontFace.CounterClockwise,
                 };
 
                 var multisampling = new PipelineMultisampleStateCreateInfo

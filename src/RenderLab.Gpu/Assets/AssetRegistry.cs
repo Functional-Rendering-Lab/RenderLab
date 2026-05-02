@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using RenderLab.Assets;
 using Silk.NET.Vulkan;
 using FResult = RenderLab.Functional.Result;
@@ -178,6 +179,82 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         _materials.TryGetValue(id.IsNone ? _defaultMaterialId.Value : id.Value, out asset!);
 
     public IEnumerable<MaterialAsset> AllMaterials => _materials.Values;
+
+    // ─── glTF import ───────────────────────────────────────────────────
+
+    /// <summary>
+    /// Loads a glTF / glb file and registers every asset it contains in
+    /// dependency order: textures first, then materials (with rewritten
+    /// texture refs), then meshes, then drawable seeds. The pure parsing
+    /// step lives in <see cref="GltfLoader"/>; this method is the impure
+    /// orchestration boundary.
+    /// </summary>
+    public RenderLab.Functional.Result<GltfImportResult, AssetError> ImportGltf(string path)
+    {
+        GltfImport import;
+        try
+        {
+            import = GltfLoader.Load(path);
+        }
+        catch (FileNotFoundException)
+        {
+            return FResult.Error<GltfImportResult, AssetError>(new AssetError.FileNotFound(path));
+        }
+        catch (Exception ex)
+        {
+            return FResult.Error<GltfImportResult, AssetError>(new AssetError.InvalidFormat(path, ex.Message));
+        }
+
+        AssetError? failure = null;
+
+        var textureIds = ImmutableArray.CreateBuilder<TextureId>(import.Textures.Length);
+        foreach (var t in import.Textures)
+        {
+            RegisterTexture(t.Name, t.Width, t.Height, t.Format, t.Pixels).Match(
+                ok: id => { textureIds.Add(id); return 0; },
+                error: e => { failure = e; return 0; });
+            if (failure is not null) return FResult.Error<GltfImportResult, AssetError>(failure);
+        }
+
+        var materialIds = ImmutableArray.CreateBuilder<MaterialId>(import.Materials.Length);
+        foreach (var m in import.Materials)
+        {
+            var albedoMap = m.AlbedoTextureIndex >= 0 && m.AlbedoTextureIndex < textureIds.Count
+                ? textureIds[m.AlbedoTextureIndex]
+                : TextureId.None;
+            RegisterMaterial(m.Name, id => new BlinnPhongMaterial(
+                id, m.Name, m.Albedo, m.SpecularStrength, m.Shininess, albedoMap)).Match(
+                ok: id => { materialIds.Add(id); return 0; },
+                error: e => { failure = e; return 0; });
+            if (failure is not null) return FResult.Error<GltfImportResult, AssetError>(failure);
+        }
+
+        var meshIds = ImmutableArray.CreateBuilder<MeshId>(import.Meshes.Length);
+        foreach (var msh in import.Meshes)
+        {
+            RegisterMesh(msh.Name, msh.Data).Match(
+                ok: id => { meshIds.Add(id); return 0; },
+                error: e => { failure = e; return 0; });
+            if (failure is not null) return FResult.Error<GltfImportResult, AssetError>(failure);
+        }
+
+        var drawables = ImmutableArray.CreateBuilder<ImportedDrawable>(import.Drawables.Length);
+        foreach (var d in import.Drawables)
+        {
+            // Drop drawables that reference an unparseable mesh; tolerate
+            // missing materials by falling back to the registry default.
+            if (d.MeshIndex < 0 || d.MeshIndex >= meshIds.Count) continue;
+            var matId = d.MaterialIndex >= 0 && d.MaterialIndex < materialIds.Count
+                ? materialIds[d.MaterialIndex]
+                : MaterialId.None;
+            drawables.Add(new ImportedDrawable(
+                d.Name, meshIds[d.MeshIndex], matId, d.Position, d.Scale));
+        }
+
+        return FResult.Ok<GltfImportResult, AssetError>(new GltfImportResult(
+            meshIds.ToImmutable(), textureIds.ToImmutable(),
+            materialIds.ToImmutable(), drawables.ToImmutable()));
+    }
 
     // ─── Built-in fallback ────────────────────────────────────────────
 

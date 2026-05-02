@@ -9,7 +9,7 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 RenderLab.App              (desktop composition root — wires everything)
   |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
   |     |-> RenderLab.Scene      (Scene snapshot, Camera, Drawable, Light DU, HemisphericAmbient, MaterialParams — pure)
-  |     |     '-> RenderLab.Assets    (MeshId/TextureId/MaterialId, MeshAsset, TextureAsset, MaterialAsset DU + BlinnPhongMaterial, Vertex3D, MeshData, ObjLoader, IAssetCatalog, AssetError — pure)
+  |     |     '-> RenderLab.Assets    (MeshId/TextureId/MaterialId, MeshAsset, TextureAsset, MaterialAsset DU + BlinnPhongMaterial, Vertex3D, MeshData, ObjLoader, GltfLoader, IAssetCatalog, AssetError — pure)
   |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
   |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
@@ -142,6 +142,8 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `AssetRegistry` | `Gpu/Assets/AssetRegistry.cs` | Shell owner of mesh + texture GPU resources and material asset records; implements `IAssetCatalog` + `IGpuAssetResolver`; built-in white texture + default material registered at construction |
 | `IGpuAssetResolver` / `GpuMeshHandles` / `GpuTextureHandles` | `Gpu/Assets/` | Shell-side resolver from IDs to live vertex/index buffers and image view + sampler |
 | `MaterialDescriptors` | `Gpu/Assets/MaterialDescriptors.cs` | Per-`TextureId` descriptor-set cache for the GBuffer material slot; one set per texture, reused across frames |
+| `GltfLoader` | `Assets/GltfLoader.cs` | Pure parser (SharpGLTF + StbImageSharp) producing a `GltfImport` blueprint: meshes, RGBA textures, materials (PBR baseColor → Blinn-Phong), drawable seeds with raw position/scale and index cross-refs |
+| `AssetRegistry.ImportGltf` | `Gpu/Assets/AssetRegistry.cs` | Shell orchestration of a `GltfImport`: registers in dependency order (textures → materials → meshes → drawables) and rewrites indices into real ids; returns `GltfImportResult` for the demo to dispatch as `UiMsg.AddDrawable` |
 
 ## Build and Run
 
