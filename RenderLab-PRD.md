@@ -1,8 +1,8 @@
 # RenderLab — Product Requirement Document
 
-**Version:** 0.1
+**Version:** 0.2
 **Author:** Andrés (TutanDev)
-**Date:** 2026-04-08
+**Date:** 2026-05-02
 **Status:** Draft
 
 ---
@@ -42,8 +42,8 @@ Implementing rendering papers today requires either:
 ## 4. Non-Goals
 
 - **Production-quality renderer.** Performance matters for profiling papers, not for shipping games.
-- **Material system.** Papers define their own shaders and pipeline state directly.
-- **General-purpose scene editor.** The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes). It is not a content-authoring tool — no gizmos beyond what inspection needs, no asset database, no prefabs, no scene serialization format beyond what the lab itself reads.
+- **Material *system*.** Papers define their own shaders and pipeline state directly. Material *assets* exist as a closed discriminated union (`BlinnPhongMaterial` today, more cases as papers need them) — they're parameter bundles the editor can edit, not a shader graph or permutation engine.
+- **General-purpose scene editor.** The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes). It is not a content-authoring tool — no gizmos beyond what inspection needs, no prefabs, no scene serialization format beyond what the lab itself reads. An in-memory **asset registry** keeps imported meshes/textures/materials addressable by typed id during a session; nothing on disk.
 - **Multi-GPU or ray tracing extensions.** Out of scope for v1.
 
 ---
@@ -159,7 +159,21 @@ The single mutable kernel. Contains:
 
 Passed explicitly by `ref` — never global, never static, never ambient.
 
-### 6.5 Render Graph
+### 6.5 Asset Boundary
+
+Imported and registered content (meshes, textures, materials) is addressed by typed opaque ids — `MeshId`, `TextureId`, `MaterialId` — not by GPU handles. The split mirrors the purity boundary:
+
+- **`IAssetCatalog`** is the pure read interface. Returns CPU-side `MeshAsset`, `TextureAsset`, `MaterialAsset` records by id. Scene snapshots, papers, and editor panels consume only this view. No GPU handles ever appear here.
+- **`IGpuAssetResolver`** is the shell-side resolver. Pass recorders call it at `CmdDraw` time to get `GpuMeshHandles` (vertex/index buffers + index count) and `GpuTextureHandles` (image view + sampler).
+- **`AssetRegistry`** is the single owner of both views. It implements `IAssetCatalog` + `IGpuAssetResolver` + `IDisposable`, owns mesh and texture GPU resources, and serves in-place edits to material assets via `UpdateMaterial`.
+
+Material assets are mutable in place: the editor edits the named asset by id rather than carrying a copy on each `Drawable`. The pure UI reducer treats material edits as no-ops; the shell intercepts them and calls the registry before resolving the next frame.
+
+Built-in fallbacks (1×1 white texture, default Blinn-Phong material) cover `TextureId.None` / `MaterialId.None` so render code dereferences unconditionally. The registry refuses to remove these.
+
+Asset removal supports a per-frame deferred-destroy queue. Pending GPU resources carry a safety frame of `currentFrame + MaxFramesInFlight + 1` and are released on `AssetRegistry.Tick()` once that frame is reached.
+
+### 6.6 Render Graph
 
 **Input:** `ImmutableArray<RenderPass>` where each pass declares:
 
@@ -185,10 +199,11 @@ Passed explicitly by `ref` — never global, never static, never ambient.
 | GPU bindings | Silk.NET Vulkan | Raw Vulkan bindings, no abstraction overhead. |
 | Windowing (desktop) | Silk.NET GLFW | Flat C-style API, easy to wrap as a poll loop. Avoids OOP event callback patterns. |
 | Shader compilation | glslc / dxc (subprocess) | GLSL/HLSL → SPIR-V. Called at build time or on-demand. No runtime compiler dependency. |
-| Memory allocation | VMA (Vulkan Memory Allocator) via P/Invoke | Industry standard. Small C API surface for interop. |
-| Debug UI | cimgui via P/Invoke | ImGui's C bindings. Flat API. Render through the engine's own Vulkan backend. |
-| Mesh loading | Minimal OBJ parser + cgltf via P/Invoke | Enough to load paper test scenes. Not a full asset pipeline. |
-| Texture loading | KTX2 (libktx P/Invoke) + stb_image | GPU-compressed formats for distribution, uncompressed for desktop iteration. |
+| Memory allocation | Hand-rolled `Allocator` (intent-based, one `vkAllocateMemory` per resource) | Pragmatic for the lab's allocation volume; sub-allocation deferred. VMA P/Invoke remains the upgrade path if a measurable bottleneck appears. |
+| Debug UI | ImGui.NET (managed) | Idiomatic C# bindings. Renders through the engine's own Vulkan backend. |
+| Mesh loading | Hand-rolled OBJ parser + SharpGLTF (managed) | SharpGLTF parses .gltf/.glb without P/Invoke; the asset registry orchestrates upload. |
+| Texture loading | StbImageSharp (managed PNG/JPEG decode) | Decodes embedded glTF images to RGBA. KTX2 / GPU-compressed formats deferred until a paper needs them. |
+| File picker | NativeFileDialogSharp | Native OS file dialogs (one native dep, RID-based runtime libs). Used by the editor's `File → Import glTF…`. |
 | Math | System.Numerics or custom | `Vector3`, `Matrix4x4`, `Quaternion` from BCL. Extend if needed. |
 | Functional library | RenderLab.Functional (custom) | `Optional<T>`, `Result<T,E>`, tagged union base, `Pipe`, `Seq` extensions. |
 
@@ -232,11 +247,18 @@ Papers query this record — they never call Vulkan directly.
 RenderLab.sln
 ├── src/
 │   ├── RenderLab.Functional/        Optional<T>, Result<T,E>, unions, Pipe, Seq
-│   ├── RenderLab.Gpu/               Handles, descriptors, GpuState, Gpu module
-│   │                                 (Silk.NET Vulkan calls live here and only here)
+│   ├── RenderLab.Assets/            MeshId/TextureId/MaterialId, MeshAsset, TextureAsset,
+│   │                                 MaterialAsset DU + BlinnPhongMaterial, Vertex3D,
+│   │                                 MeshData, ObjLoader, GltfLoader, IAssetCatalog —
+│   │                                 pure data + parsing, no GPU
+│   ├── RenderLab.Gpu/               Handles, descriptors, GpuState, Gpu module + Allocator
+│   │                                 (Silk.NET Vulkan calls live here and only here);
+│   │                                 Assets/ holds AssetRegistry + GPU resolver
 │   ├── RenderLab.Graph/             RenderPass, RenderGraph compiler, barrier logic
-│   ├── RenderLab.Platform.Desktop/  GLFW window, surface creation, main loop
-│   ├── RenderLab.Scene/             Mesh, Camera, Transform — immutable records
+│   ├── RenderLab.Platform.Desktop/  GLFW window, surface creation, main loop, file dialogs
+│   ├── RenderLab.Scene/             Camera, Transform, Drawable (MeshId+MaterialId),
+│   │                                 Light DU, HemisphericAmbient, MaterialParams,
+│   │                                 FreeCameraController — immutable records
 │   ├── RenderLab.Shaders/           GLSL/HLSL sources, build-time SPIR-V compilation
 │   ├── RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
 │   ├── RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views, stats overlay, GPU timers
@@ -279,11 +301,11 @@ RenderLab.sln
 ### M5 — Lab as Editor
 **Deliverable:** Turn the renderer into an interactive lab editor. Three capabilities, each with a companion blog post in the Editor block:
 
-1. **Shader hot-reload** — file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes.
-2. **Scene inspector** — the existing ScenePanel grows into a real inspector. Edit transforms, lights, and material parameters live. The pure Scene snapshot remains the source of truth; the editor is an Elm-style Model/Msg/Update layer producing intents.
-3. **Mesh import pipeline** — load real 3D models from glTF and OBJ. The import boundary is a pure transformation from file bytes to immutable `Mesh` records; assets stay data, not engine objects.
+1. **Shader hot-reload** — file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes. *(open)*
+2. **Scene inspector** — the existing ScenePanel grows into a real inspector. Edit transforms (including rotation), lights, and material parameters live. The pure Scene snapshot remains the source of truth; the editor is an Elm-style Model/Msg/Update layer producing intents. *(landed)*
+3. **Asset import + registry** — load real 3D models from glTF (and OBJ). The pure `GltfLoader` returns an `Import` blueprint of meshes, textures, materials, and drawable seeds; the shell-side `AssetRegistry` walks the blueprint in dependency order and rewrites blueprint indices into typed ids. An asset browser lists every registered mesh/texture/material with reference counts and per-row remove buttons; per-drawable mesh/material/albedo-texture swaps land in the inspector. Removal is reference-safe (refused with a log if anything still points at the asset) and frees GPU resources via a `MaxFramesInFlight + 1` deferred-destroy queue. *(landed)*
 
-**Validates:** The lab is no longer a hardcoded scene runner. The paper-first workflow gets its iteration loop: change a shader, see it recompile; tweak a light, see it move; drop in a glTF, see it render. This is the foundation the next round of paper implementations will be built on.
+**Validates:** The lab is no longer a hardcoded scene runner. The paper-first workflow gets its iteration loop: change a shader, see it recompile (TBD); tweak a light, see it move; drop in a glTF, see it render. This is the foundation the next round of paper implementations will be built on.
 
 ---
 
@@ -296,7 +318,7 @@ RenderLab.sln
 | No abstraction layer over Vulkan | Papers see Vulkan-level concepts (pipelines, descriptors, barriers) | wgpu-style simplified API | Papers reference Vulkan concepts directly. Abstraction would require constant translation. wgpu backend planned as a future addition, not a replacement. |
 | Value-type commands | `readonly record struct` with tag | Class hierarchy, interface dispatch | Zero allocation. Cache-friendly. Span-compatible. Matches functional union semantics. |
 | Build-time shader compilation | glslc subprocess | Runtime compilation via shaderc | Simpler dependency. Faster startup. SPIR-V embedded or loaded from disk. Runtime variant selection via specialization constants, not recompilation. |
-| VMA for memory | P/Invoke to C library | Manual Vulkan memory management | Not where insight lives. VMA is battle-tested. Small interop surface. |
+| Hand-rolled `Allocator` for memory | Intent-based (`GpuOnly` / `CpuToGpu`); one `vkAllocateMemory` per resource; coupled `(handle, Allocation)` returns | VMA P/Invoke; arena suballocator | Lab allocation volume is low (tens of resources). Sub-allocation has no measured benefit yet. VMA is the upgrade path if a paper produces measurable allocator pressure. |
 
 ---
 
