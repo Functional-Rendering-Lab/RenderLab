@@ -15,4 +15,8 @@ public abstract record AppUiMsg
     /// passes through; the shell calls <c>AssetRegistry.ImportGltf</c> and
     /// dispatches <c>UiMsg.AddDrawable</c> for each imported drawable.</summary>
     public sealed record RequestImportGltf(string Path) : AppUiMsg;
+    /// <summary>Open the OS file picker, then import the chosen file. The
+    /// reducer passes through; the shell owns the dialog because the picker
+    /// is platform-specific.</summary>
+    public sealed record RequestImportGltfDialog : AppUiMsg;
 }

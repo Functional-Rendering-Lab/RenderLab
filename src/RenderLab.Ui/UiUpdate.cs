@@ -20,6 +20,8 @@ public static class UiUpdate
         UiMsg.RemoveDrawable m          => RemoveDrawable(model, m.LocalId),
         UiMsg.SelectDrawable m          => model with { SelectedDrawable = m.LocalId },
         UiMsg.SetDrawableTransform m    => UpdateDrawable(model, m.LocalId, d => d with { Transform = m.Transform }),
+        UiMsg.SetDrawableMesh m         => UpdateDrawable(model, m.LocalId, d => d with { Mesh = m.Mesh }),
+        UiMsg.SetDrawableMaterial m     => UpdateDrawable(model, m.LocalId, d => d with { Material = m.Material }),
         // UpdateMaterialAsset is a registry side-effect; the shell handles it.
         UiMsg.UpdateMaterialAsset       => model,
         UiMsg.SetShading m              => model with { Shading = m.Mode },

@@ -25,6 +25,8 @@ public abstract record UiMsg
     public sealed record RemoveDrawable(Guid LocalId) : UiMsg;
     public sealed record SelectDrawable(Guid? LocalId) : UiMsg;
     public sealed record SetDrawableTransform(Guid LocalId, Transform Transform) : UiMsg;
+    public sealed record SetDrawableMesh(Guid LocalId, MeshId Mesh) : UiMsg;
+    public sealed record SetDrawableMaterial(Guid LocalId, MaterialId Material) : UiMsg;
     /// <summary>Edits a registered material asset in place (registry side-effect).
     /// The reducer passes through; the shell applies the update to the registry.</summary>
     public sealed record UpdateMaterialAsset(MaterialId Id, MaterialAsset Asset) : UiMsg;

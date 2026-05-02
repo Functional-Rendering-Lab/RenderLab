@@ -546,8 +546,16 @@ public sealed class DeferredDemo : IDemo
         // the editor list without bypassing the reducer.
         var extraMessages = new List<UiMsg>();
         foreach (var amsg in viewResult.AppMessages)
+        {
             if (amsg is AppUiMsg.RequestImportGltf import)
                 extraMessages.AddRange(HandleImport(import.Path));
+            else if (amsg is AppUiMsg.RequestImportGltfDialog)
+            {
+                var picked = PlatformDialogs.OpenGltfFile();
+                if (picked is not null)
+                    extraMessages.AddRange(HandleImport(picked));
+            }
+        }
 
         ui = UiUpdate.ApplyAll(ui, viewResult.Messages);
         ui = UiUpdate.ApplyAll(ui, extraMessages);

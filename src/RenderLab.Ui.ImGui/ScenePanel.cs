@@ -39,7 +39,7 @@ public static class ScenePanel
 
         if (ImGui.TreeNodeEx($"Drawables ({model.Drawables.Length})", ImGuiTreeNodeFlags.DefaultOpen))
         {
-            DrawDrawableList(model, dispatch);
+            DrawDrawableList(model, catalog, dispatch);
             DrawSelectedInspector(model, catalog, dispatch);
             ImGui.TreePop();
         }
@@ -65,7 +65,7 @@ public static class ScenePanel
         ImGui.End();
     }
 
-    private static void DrawDrawableList(UiModel model, Action<UiMsg> dispatch)
+    private static void DrawDrawableList(UiModel model, IAssetCatalog catalog, Action<UiMsg> dispatch)
     {
         for (int i = 0; i < model.Drawables.Length; i++)
         {
@@ -86,13 +86,89 @@ public static class ScenePanel
             var src = model.Drawables.First(d => d.LocalId == model.SelectedDrawable);
             var nudged = src.Transform with { Position = src.Transform.Position + new Vector3(1f, 0f, 0f) };
             // Cloned drawable shares the source material id — editing it edits both.
-            // A "duplicate material" affordance lands with the asset browser.
+            // A "duplicate material" affordance lands when the registry grows
+            // a clone-asset method (Step I+).
             dispatch(new UiMsg.AddDrawable($"{src.Name} copy", src.Mesh, nudged, src.Material));
         }
         ImGui.SameLine();
         if (ImGui.Button("- remove") && model.SelectedDrawable is Guid removeId)
             dispatch(new UiMsg.RemoveDrawable(removeId));
         if (!hasSelection) ImGui.EndDisabled();
+
+        DrawAddFromAssets(model, catalog, dispatch);
+    }
+
+    // "+ Add" picker — composes a new drawable from any registered mesh +
+    // material. Selections persist across frames via static slots; trivial
+    // because there's only one shell.
+    private static MeshId _addMesh = MeshId.None;
+    private static MaterialId _addMaterial = MaterialId.None;
+
+    private static void DrawAddFromAssets(UiModel model, IAssetCatalog catalog, Action<UiMsg> dispatch)
+    {
+        var meshes = catalog.AllMeshes.ToArray();
+        var materials = catalog.AllMaterials.ToArray();
+        if (meshes.Length == 0 || materials.Length == 0) return;
+
+        // Default selections to the first available asset.
+        if (_addMesh.IsNone) _addMesh = meshes[0].Id;
+        if (_addMaterial.IsNone) _addMaterial = materials[0].Id;
+
+        ImGui.SeparatorText("Add from registry");
+        MeshCombo("Mesh##add", meshes, ref _addMesh);
+        MaterialCombo("Material##add", materials, ref _addMaterial);
+        if (ImGui.Button("+ Add"))
+        {
+            var meshName = meshes.First(m => m.Id == _addMesh).Name;
+            dispatch(new UiMsg.AddDrawable(meshName, _addMesh, Transform.Default, _addMaterial));
+        }
+    }
+
+    private static void MeshCombo(string label, MeshAsset[] meshes, ref MeshId selected)
+    {
+        var current = selected;
+        var currentName = meshes.FirstOrDefault(m => m.Id == current)?.Name ?? "(none)";
+        if (!ImGui.BeginCombo(label, currentName)) return;
+        foreach (var m in meshes)
+        {
+            var isSelected = m.Id == current;
+            if (ImGui.Selectable($"{m.Name}##mesh{m.Id.Value}", isSelected))
+                selected = m.Id;
+            if (isSelected) ImGui.SetItemDefaultFocus();
+        }
+        ImGui.EndCombo();
+    }
+
+    private static void MaterialCombo(string label, MaterialAsset[] materials, ref MaterialId selected)
+    {
+        var current = selected;
+        var currentName = materials.FirstOrDefault(m => m.Id == current)?.Name ?? "(none)";
+        if (!ImGui.BeginCombo(label, currentName)) return;
+        foreach (var m in materials)
+        {
+            var isSelected = m.Id == current;
+            if (ImGui.Selectable($"{m.Name}##mat{m.Id.Value}", isSelected))
+                selected = m.Id;
+            if (isSelected) ImGui.SetItemDefaultFocus();
+        }
+        ImGui.EndCombo();
+    }
+
+    private static void TextureCombo(string label, TextureAsset[] textures, ref TextureId selected)
+    {
+        var current = selected;
+        var currentName = current.IsNone ? "(none)" : textures.FirstOrDefault(t => t.Id == current)?.Name ?? "(none)";
+        if (!ImGui.BeginCombo(label, currentName)) return;
+        if (ImGui.Selectable("(none)##texnone", current.IsNone))
+            selected = TextureId.None;
+        foreach (var t in textures)
+        {
+            var isSelected = t.Id == current;
+            if (ImGui.Selectable($"{t.Name}##tex{t.Id.Value}", isSelected))
+                selected = t.Id;
+            if (isSelected) ImGui.SetItemDefaultFocus();
+        }
+        ImGui.EndCombo();
     }
 
     private static void DrawSelectedInspector(UiModel model, IAssetCatalog catalog, Action<UiMsg> dispatch)
@@ -114,15 +190,31 @@ public static class ScenePanel
         if (!nextTransform.Equals(t))
             dispatch(new UiMsg.SetDrawableTransform(id, nextTransform));
 
-        // Material edits target the registered asset by id. The reducer is a
-        // no-op on UpdateMaterialAsset; the shell applies it to the registry
-        // before re-resolving for the next frame.
+        // Mesh swap.
+        var meshes = catalog.AllMeshes.ToArray();
+        var meshSel = drawable.Mesh;
+        MeshCombo("Mesh", meshes, ref meshSel);
+        if (meshSel != drawable.Mesh)
+            dispatch(new UiMsg.SetDrawableMesh(id, meshSel));
+
+        // Material swap (which asset this drawable points at).
+        var materials = catalog.AllMaterials.ToArray();
+        var matSel = drawable.Material;
+        MaterialCombo("Material", materials, ref matSel);
+        if (matSel != drawable.Material)
+            dispatch(new UiMsg.SetDrawableMaterial(id, matSel));
+
+        // Material asset edits target the registered asset by id. The reducer
+        // is a no-op on UpdateMaterialAsset; the shell applies it to the
+        // registry before re-resolving for the next frame.
         if (catalog.GetMaterial(drawable.Material) is BlinnPhongMaterial bp)
         {
             var albedo = DebugFields.ColorEdit("Albedo", bp.Albedo);
             var spec = DebugFields.DragFloat("Spec Strength", bp.SpecularStrength, 0.005f, 0f, 1f);
             var shininess = DebugFields.DragFloat("Shininess", bp.Shininess, 1f, 1f, MaterialParams.ShininessRange);
-            var next = bp with { Albedo = albedo, SpecularStrength = spec, Shininess = shininess };
+            var albedoMap = bp.AlbedoMap;
+            TextureCombo("Albedo Map", catalog.AllTextures.ToArray(), ref albedoMap);
+            var next = bp with { Albedo = albedo, SpecularStrength = spec, Shininess = shininess, AlbedoMap = albedoMap };
             if (!next.Equals(bp))
                 dispatch(new UiMsg.UpdateMaterialAsset(bp.Id, next));
         }
