@@ -4,6 +4,7 @@ using ImGuiNET;
 using Silk.NET.Vulkan;
 using RenderLab.Ui.ImGui;
 using RenderLab.Gpu;
+using RenderLab.Gpu.Assets;
 using RenderLab.Papers;
 using RenderLab.Ui;
 using RenderLab.Assets;
@@ -67,6 +68,11 @@ public sealed class GBufferDemo : IDemo
 
     // Descriptor layout
     DescriptorSetLayout singleDsLayout;
+    DescriptorSetLayout materialDsLayout;
+
+    // Material assets — registry for the white fallback + descriptor cache.
+    AssetRegistry assets = null!;
+    MaterialDescriptors materials = null!;
 
     // Camera
     FreeCameraState cameraState;
@@ -203,12 +209,19 @@ public sealed class GBufferDemo : IDemo
 
         // ─── Descriptor layout ───────────────────────────────────────
         singleDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
+        materialDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
+
+        // Asset registry brings in the 1×1 white fallback texture; the cache
+        // hands it back as a descriptor set bound at every GBuffer draw.
+        assets = new AssetRegistry(gpu);
+        materials = new MaterialDescriptors(gpu, assets, materialDsLayout, maxTextures: 4);
 
         // ─── Pipelines ───────────────────────────────────────────────
         gbufferPipeline = VulkanPipeline.CreateGBufferPipeline(
             gpu, gbufferRenderPass, gbufferVertModule, gbufferFragModule,
             Vertex3D.BindingDescription, Vertex3D.AttributeDescriptions,
             (uint)Marshal.SizeOf<GBufferPushConstants>(),
+            materialDsLayout,
             out gbufferPipelineLayout);
 
         debugVizPipeline = VulkanPipeline.CreateFullscreenPipeline(
@@ -253,7 +266,8 @@ public sealed class GBufferDemo : IDemo
             Extent: gpu.SwapchainExtent);
 
         var pc = GBufferPass.BuildPushConstants(Transform.Default, camera, MaterialParams.Default);
-        GBufferPass.Record(api, cb, resources, pc, vertexBuffer, indexBuffer, indexCount);
+        var matSet = materials.GetOrAllocate(TextureId.None);
+        GBufferPass.Record(api, cb, resources, pc, matSet, vertexBuffer, indexBuffer, indexCount);
     }
 
     // ─── Manual barriers ─────────────────────────────────────────────
@@ -487,6 +501,10 @@ public sealed class GBufferDemo : IDemo
         vk.DestroyRenderPass(gpu.Device, swapchainRenderPass, null);
         vk.DestroyRenderPass(gpu.Device, overlayRenderPass, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
+        vk.DestroyDescriptorSetLayout(gpu.Device, materialDsLayout, null);
+
+        materials.Dispose();
+        assets.Dispose();
 
         VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
         VulkanBuffer.Destroy(gpu, indexBuffer, indexAlloc);

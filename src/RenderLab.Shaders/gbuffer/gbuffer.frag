@@ -12,6 +12,11 @@ layout(location = 0) out vec4 outPosition;
 layout(location = 1) out vec4 outNormal;
 layout(location = 2) out vec4 outAlbedo;
 
+// Per-material albedo map. The shell binds a 1x1 white texture when a drawable
+// has no map, so this sample is unconditional. Texture is sRGB on the Vulkan
+// side, so the read returns linear and multiplies safely with pc.albedo.
+layout(set = 0, binding = 0) uniform sampler2D uAlbedo;
+
 layout(push_constant) uniform PushConstants {
     mat4 model;
     mat4 viewProj;
@@ -23,7 +28,8 @@ layout(push_constant) uniform PushConstants {
 const float SHININESS_RANGE = 256.0;
 
 void main() {
+    vec3 sampled = texture(uAlbedo, uv).rgb;
     outPosition = vec4(worldPos, 1.0);
     outNormal = vec4(normalize(worldNormal), pc.specularStrength);
-    outAlbedo = vec4(pc.albedo, pc.shininess / SHININESS_RANGE);
+    outAlbedo = vec4(sampled * pc.albedo, pc.shininess / SHININESS_RANGE);
 }

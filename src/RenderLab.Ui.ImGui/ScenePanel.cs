@@ -84,7 +84,7 @@ public static class ScenePanel
         {
             var src = model.Drawables.First(d => d.LocalId == model.SelectedDrawable);
             var nudged = src.Transform with { Position = src.Transform.Position + new Vector3(1f, 0f, 0f) };
-            dispatch(new UiMsg.AddDrawable($"{src.Name} copy", src.Mesh, nudged, src.Material));
+            dispatch(new UiMsg.AddDrawable($"{src.Name} copy", src.Mesh, nudged, src.Material, src.AlbedoMap));
         }
         ImGui.SameLine();
         if (ImGui.Button("- remove") && model.SelectedDrawable is Guid removeId)

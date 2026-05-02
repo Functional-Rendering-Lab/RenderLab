@@ -10,4 +10,11 @@ namespace RenderLab.Gpu.Assets;
 public interface IGpuAssetResolver
 {
     GpuMeshHandles ResolveMesh(MeshId id);
+
+    /// <summary>
+    /// Returns view + sampler for the given texture, falling back to a built-in
+    /// 1×1 white image when <paramref name="id"/> is <see cref="TextureId.None"/>.
+    /// Shaders can therefore sample unconditionally without a per-draw branch.
+    /// </summary>
+    GpuTextureHandles ResolveTexture(TextureId id);
 }

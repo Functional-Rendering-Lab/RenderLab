@@ -21,7 +21,7 @@ public abstract record UiMsg
     public sealed record AddDirectionalLight() : UiMsg;
     public sealed record RemoveLight(int Index) : UiMsg;
     public sealed record UpdateAmbient(HemisphericAmbient Ambient) : UiMsg;
-    public sealed record AddDrawable(string Name, MeshId Mesh, Transform Transform, MaterialParams Material) : UiMsg;
+    public sealed record AddDrawable(string Name, MeshId Mesh, Transform Transform, MaterialParams Material, TextureId AlbedoMap) : UiMsg;
     public sealed record RemoveDrawable(Guid LocalId) : UiMsg;
     public sealed record SelectDrawable(Guid? LocalId) : UiMsg;
     public sealed record SetDrawableTransform(Guid LocalId, Transform Transform) : UiMsg;

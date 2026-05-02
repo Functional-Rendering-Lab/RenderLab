@@ -42,10 +42,13 @@ public sealed class DeferredDemo : IDemo
     Vk vk = null!;
     GpuState gpu = null!;
 
-    // Mesh
+    // Assets
     AssetRegistry assets = null!;
+    MaterialDescriptors materials = null!;
     MeshId sphereMeshId;
     MeshId cubeMeshId;
+    TextureId checkerTextureId;
+    DescriptorSetLayout materialDsLayout;
 
     // Shaders & render passes
     RenderPass gbufferRenderPass, lightingRenderPass, tonemapRenderPass, overlayRenderPass;
@@ -225,12 +228,21 @@ public sealed class DeferredDemo : IDemo
             ok: id => id,
             error: e => throw new InvalidOperationException($"Failed to register cube mesh: {e.Message}"));
 
+        // Procedural sRGB checker — 8×8 cells over 256×256, exercises sampling
+        // with non-trivial UV variation. Sphere stays untextured to verify the
+        // white-fallback path keeps working in the same frame.
+        checkerTextureId = assets.RegisterTexture("Checker", 256, 256, TextureFormat.Rgba8Srgb,
+            BuildCheckerPixels(256, 256, cells: 8)).Match(
+            ok: id => id,
+            error: e => throw new InvalidOperationException($"Failed to register checker texture: {e.Message}"));
+
         // ─── Seed editable drawables ─────────────────────────────────
-        var sphereDrawable = new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMeshId, Transform.Default, MaterialParams.Default);
+        var sphereDrawable = new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMeshId, Transform.Default, MaterialParams.Default, TextureId.None);
         var cubeDrawable   = new EditableDrawable(
             Guid.NewGuid(), "Cube", cubeMeshId,
             Transform.Default with { Position = new Vector3(2.5f, 0f, 0f) },
-            MaterialParams.Default);
+            MaterialParams.Default,
+            checkerTextureId);
         ui = ui with
         {
             Drawables = ImmutableArray.Create(sphereDrawable, cubeDrawable),
@@ -257,13 +269,19 @@ public sealed class DeferredDemo : IDemo
         gbufferDsLayout = VulkanDescriptors.CreateGBufferSamplerLayout(gpu);
         singleDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
         lightStorageDsLayout = VulkanDescriptors.CreateLightStorageLayout(gpu);
+        materialDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
 
         // ─── Pipelines ───────────────────────────────────────────────
         gbufferPipeline = VulkanPipeline.CreateGBufferPipeline(
             gpu, gbufferRenderPass, gbufferVertModule, gbufferFragModule,
             Vertex3D.BindingDescription, Vertex3D.AttributeDescriptions,
             (uint)Marshal.SizeOf<GBufferPushConstants>(),
+            materialDsLayout,
             out gbufferPipelineLayout);
+
+        // Material descriptor cache lives once the layout exists; sized for
+        // a generous handful of textures (white fallback + per-drawable maps).
+        materials = new MaterialDescriptors(gpu, assets, materialDsLayout, maxTextures: 16);
 
         lightingPipeline = VulkanPipeline.CreateFullscreenPipeline(
             gpu, lightingRenderPass,
@@ -363,7 +381,7 @@ public sealed class DeferredDemo : IDemo
             PipelineLayout: gbufferPipelineLayout,
             Extent: gpu.SwapchainExtent);
 
-        GBufferPass.Record(api, cb, resources, scene.Drawables, assets, scene.Camera);
+        GBufferPass.Record(api, cb, resources, scene.Drawables, assets, materials, scene.Camera);
 
         timestamps.EndPass(api, cb);
     }
@@ -702,11 +720,34 @@ public sealed class DeferredDemo : IDemo
     {
         var drawables = ImmutableArray.CreateBuilder<Drawable>(ui.Drawables.Length);
         foreach (var d in ui.Drawables)
-            drawables.Add(new Drawable(d.Name, d.Mesh, d.Transform, d.Material));
+            drawables.Add(new Drawable(d.Name, d.Mesh, d.Transform, d.Material, d.AlbedoMap));
         return new Scene(
             Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
             Drawables: drawables.MoveToImmutable(),
             Lights: ui.Lights);
+    }
+
+    // ─── Procedural assets ───────────────────────────────────────────
+
+    static byte[] BuildCheckerPixels(int width, int height, int cells)
+    {
+        var pixels = new byte[width * height * 4];
+        int cellW = Math.Max(1, width / cells);
+        int cellH = Math.Max(1, height / cells);
+        for (int y = 0; y < height; y++)
+        {
+            for (int x = 0; x < width; x++)
+            {
+                bool dark = ((x / cellW) + (y / cellH)) % 2 == 0;
+                int o = (y * width + x) * 4;
+                byte v = dark ? (byte)40 : (byte)220;
+                pixels[o + 0] = v;
+                pixels[o + 1] = v;
+                pixels[o + 2] = v;
+                pixels[o + 3] = 255;
+            }
+        }
+        return pixels;
     }
 
     // ─── Cleanup ─────────────────────────────────────────────────────
@@ -736,7 +777,11 @@ public sealed class DeferredDemo : IDemo
         vk.DestroyDescriptorSetLayout(gpu.Device, gbufferDsLayout, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, lightStorageDsLayout, null);
+        vk.DestroyDescriptorSetLayout(gpu.Device, materialDsLayout, null);
 
+        // Material cache holds descriptor sets allocated from a pool it owns;
+        // tear it down before the registry destroys the underlying images.
+        materials.Dispose();
         assets.Dispose();
 
         gpu.Dispose();

@@ -31,6 +31,7 @@ public static class GBufferPass
         GBufferPassResources r,
         ImmutableArray<Drawable> drawables,
         IGpuAssetResolver resolver,
+        MaterialDescriptors materials,
         Camera camera)
     {
         BeginPass(vk, cb, r);
@@ -41,6 +42,10 @@ public static class GBufferPass
             vk.CmdPushConstants(cb, r.PipelineLayout,
                 ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
                 0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
+
+            var matSet = materials.GetOrAllocate(d.AlbedoMap);
+            vk.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, r.PipelineLayout,
+                0, 1, &matSet, 0, null);
 
             var h = resolver.ResolveMesh(d.Mesh);
             var vb = h.VertexBuffer;
@@ -58,6 +63,7 @@ public static class GBufferPass
         CommandBuffer cb,
         GBufferPassResources r,
         GBufferPushConstants pc,
+        DescriptorSet materialSet,
         Buffer vertexBuffer,
         Buffer indexBuffer,
         uint indexCount)
@@ -67,6 +73,9 @@ public static class GBufferPass
         vk.CmdPushConstants(cb, r.PipelineLayout,
             ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
             0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
+
+        vk.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, r.PipelineLayout,
+            0, 1, &materialSet, 0, null);
 
         var vb = vertexBuffer;
         ulong offset = 0;

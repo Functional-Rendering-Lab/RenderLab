@@ -11,4 +11,8 @@ public interface IAssetCatalog
     MeshAsset GetMesh(MeshId id);
     bool TryGetMesh(MeshId id, out MeshAsset asset);
     IEnumerable<MeshAsset> AllMeshes { get; }
+
+    TextureAsset GetTexture(TextureId id);
+    bool TryGetTexture(TextureId id, out TextureAsset asset);
+    IEnumerable<TextureAsset> AllTextures { get; }
 }

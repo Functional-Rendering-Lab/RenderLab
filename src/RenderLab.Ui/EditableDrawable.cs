@@ -14,4 +14,5 @@ public sealed record EditableDrawable(
     string Name,
     MeshId Mesh,
     Transform Transform,
-    MaterialParams Material);
+    MaterialParams Material,
+    TextureId AlbedoMap);

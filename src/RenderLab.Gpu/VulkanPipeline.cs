@@ -592,6 +592,7 @@ public static class VulkanPipeline
         VertexInputBindingDescription bindingDesc,
         VertexInputAttributeDescription[] attrDescs,
         uint pushConstantSize,
+        DescriptorSetLayout materialLayout,
         out PipelineLayout pipelineLayout)
     {
         var entryPoint = Marshal.StringToHGlobalAnsi("main");
@@ -707,9 +708,14 @@ public static class VulkanPipeline
                     Size = pushConstantSize,
                 };
 
+                // Set 0 holds the per-material albedo sampler (combined image
+                // sampler at binding 0). One set per texture, swapped per draw.
+                var setLayouts = stackalloc DescriptorSetLayout[1] { materialLayout };
                 var layoutInfo = new PipelineLayoutCreateInfo
                 {
                     SType = StructureType.PipelineLayoutCreateInfo,
+                    SetLayoutCount = 1,
+                    PSetLayouts = setLayouts,
                     PushConstantRangeCount = 1,
                     PPushConstantRanges = &pushConstantRange,
                 };

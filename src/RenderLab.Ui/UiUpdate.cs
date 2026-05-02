@@ -16,7 +16,7 @@ public static class UiUpdate
         UiMsg.AddDirectionalLight       => model with { Lights = model.Lights.Add(UiModel.DefaultNewDirectionalLight) },
         UiMsg.RemoveLight m             => RemoveLight(model, m.Index),
         UiMsg.UpdateAmbient m           => model with { Ambient = m.Ambient },
-        UiMsg.AddDrawable m             => AddDrawable(model, m.Name, m.Mesh, m.Transform, m.Material),
+        UiMsg.AddDrawable m             => AddDrawable(model, m.Name, m.Mesh, m.Transform, m.Material, m.AlbedoMap),
         UiMsg.RemoveDrawable m          => RemoveDrawable(model, m.LocalId),
         UiMsg.SelectDrawable m          => model with { SelectedDrawable = m.LocalId },
         UiMsg.SetDrawableTransform m    => UpdateDrawable(model, m.LocalId, d => d with { Transform = m.Transform }),
@@ -38,9 +38,9 @@ public static class UiUpdate
             ? model with { Lights = model.Lights.RemoveAt(index) }
             : model;
 
-    private static UiModel AddDrawable(UiModel model, string name, RenderLab.Assets.MeshId mesh, Transform transform, MaterialParams material)
+    private static UiModel AddDrawable(UiModel model, string name, RenderLab.Assets.MeshId mesh, Transform transform, MaterialParams material, RenderLab.Assets.TextureId albedoMap)
     {
-        var drawable = new EditableDrawable(Guid.NewGuid(), name, mesh, transform, material);
+        var drawable = new EditableDrawable(Guid.NewGuid(), name, mesh, transform, material, albedoMap);
         return model with
         {
             Drawables = model.Drawables.Add(drawable),
