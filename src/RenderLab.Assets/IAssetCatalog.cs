@@ -15,4 +15,8 @@ public interface IAssetCatalog
     TextureAsset GetTexture(TextureId id);
     bool TryGetTexture(TextureId id, out TextureAsset asset);
     IEnumerable<TextureAsset> AllTextures { get; }
+
+    MaterialAsset GetMaterial(MaterialId id);
+    bool TryGetMaterial(MaterialId id, out MaterialAsset asset);
+    IEnumerable<MaterialAsset> AllMaterials { get; }
 }

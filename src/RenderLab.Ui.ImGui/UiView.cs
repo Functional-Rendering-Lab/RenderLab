@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using RenderLab.Assets;
 using RenderLab.Scene;
 using RenderLab.Ui;
 
@@ -19,7 +20,7 @@ using Scene = RenderLab.Scene.Scene;
 /// </summary>
 public static class UiView
 {
-    public static UiViewResult Draw(AppUiModel app, UiModel model, Scene scene, FrameStats stats)
+    public static UiViewResult Draw(AppUiModel app, UiModel model, Scene scene, IAssetCatalog catalog, FrameStats stats)
     {
         var appMessages = new List<AppUiMsg>();
         var messages = new List<UiMsg>();
@@ -34,7 +35,7 @@ public static class UiView
         if (app.IsPanelVisible(PanelId.Camera))        FreeCameraDebugMenu.Draw(model.Camera, dispatch);
         if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Lights, model.Ambient, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
         if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
-        if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(model, scene, dispatch);
+        if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(model, scene, catalog, dispatch);
 
         var io = ImGui.GetIO();
         var intent = new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard);

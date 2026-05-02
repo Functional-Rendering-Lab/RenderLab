@@ -236,13 +236,26 @@ public sealed class DeferredDemo : IDemo
             ok: id => id,
             error: e => throw new InvalidOperationException($"Failed to register checker texture: {e.Message}"));
 
+        // ─── Register per-drawable materials ─────────────────────────
+        // Each seeded drawable owns a distinct material asset so editor edits
+        // affect only that drawable. Sharing semantics arrive with the asset
+        // browser; for now "+ clone" copies the id and the shared edit is
+        // intentional.
+        var sphereMaterialId = assets.RegisterMaterial("Sphere", id =>
+            BlinnPhongMaterial.Default(id, "Sphere")).Match(
+            ok: id => id,
+            error: e => throw new InvalidOperationException($"Failed to register sphere material: {e.Message}"));
+        var cubeMaterialId = assets.RegisterMaterial("Cube", id =>
+            BlinnPhongMaterial.Default(id, "Cube") with { AlbedoMap = checkerTextureId }).Match(
+            ok: id => id,
+            error: e => throw new InvalidOperationException($"Failed to register cube material: {e.Message}"));
+
         // ─── Seed editable drawables ─────────────────────────────────
-        var sphereDrawable = new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMeshId, Transform.Default, MaterialParams.Default, TextureId.None);
+        var sphereDrawable = new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMeshId, Transform.Default, sphereMaterialId);
         var cubeDrawable   = new EditableDrawable(
             Guid.NewGuid(), "Cube", cubeMeshId,
             Transform.Default with { Position = new Vector3(2.5f, 0f, 0f) },
-            MaterialParams.Default,
-            checkerTextureId);
+            cubeMaterialId);
         ui = ui with
         {
             Drawables = ImmutableArray.Create(sphereDrawable, cubeDrawable),
@@ -381,7 +394,7 @@ public sealed class DeferredDemo : IDemo
             PipelineLayout: gbufferPipelineLayout,
             Extent: gpu.SwapchainExtent);
 
-        GBufferPass.Record(api, cb, resources, scene.Drawables, assets, materials, scene.Camera);
+        GBufferPass.Record(api, cb, resources, scene.Drawables, assets, assets, materials, scene.Camera);
 
         timestamps.EndPass(api, cb);
     }
@@ -521,7 +534,12 @@ public sealed class DeferredDemo : IDemo
             TimestampMillis: timestamps.TimingsMs.ToArray(),
             ResolvedPasses: resolvedPasses);
 
-        var viewResult = UiView.Draw(app, ui, scene, stats);
+        var viewResult = UiView.Draw(app, ui, scene, assets, stats);
+        // Material asset edits are registry-side effects the pure reducer can't
+        // see; apply them before folding so the next frame resolves the new value.
+        foreach (var msg in viewResult.Messages)
+            if (msg is UiMsg.UpdateMaterialAsset edit)
+                assets.UpdateMaterial(edit.Id, edit.Asset);
         ui = UiUpdate.ApplyAll(ui, viewResult.Messages);
         app = AppUiUpdate.ApplyAll(app, viewResult.AppMessages);
         lastIntent = viewResult.Intent;
@@ -720,7 +738,7 @@ public sealed class DeferredDemo : IDemo
     {
         var drawables = ImmutableArray.CreateBuilder<Drawable>(ui.Drawables.Length);
         foreach (var d in ui.Drawables)
-            drawables.Add(new Drawable(d.Name, d.Mesh, d.Transform, d.Material, d.AlbedoMap));
+            drawables.Add(new Drawable(d.Name, d.Mesh, d.Transform, d.Material));
         return new Scene(
             Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
             Drawables: drawables.MoveToImmutable(),

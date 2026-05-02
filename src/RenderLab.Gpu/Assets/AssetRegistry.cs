@@ -3,6 +3,7 @@ using Silk.NET.Vulkan;
 using FResult = RenderLab.Functional.Result;
 using FMeshId = RenderLab.Functional.Result<RenderLab.Assets.MeshId, RenderLab.Assets.AssetError>;
 using FTextureId = RenderLab.Functional.Result<RenderLab.Assets.TextureId, RenderLab.Assets.AssetError>;
+using FMaterialId = RenderLab.Functional.Result<RenderLab.Assets.MaterialId, RenderLab.Assets.AssetError>;
 using VkBuffer = Silk.NET.Vulkan.Buffer;
 
 namespace RenderLab.Gpu.Assets;
@@ -20,11 +21,14 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
     private readonly Dictionary<int, MeshGpu> _meshGpu = new();
     private readonly Dictionary<int, TextureAsset> _textures = new();
     private readonly Dictionary<int, TextureGpu> _textureGpu = new();
+    private readonly Dictionary<int, MaterialAsset> _materials = new();
     private int _nextMeshId = 1;
     private int _nextTextureId = 1;
+    private int _nextMaterialId = 1;
 
     private Sampler _sharedSampler;
     private TextureId _whiteFallbackId;
+    private MaterialId _defaultMaterialId;
 
     private readonly record struct MeshGpu(VkBuffer VertexBuffer, Allocation VertexAlloc, VkBuffer IndexBuffer, Allocation IndexAlloc, uint IndexCount);
     private readonly record struct TextureGpu(Image Image, Allocation Alloc, ImageView View);
@@ -34,6 +38,7 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         _gpu = gpu;
         _sharedSampler = VulkanImage.CreateSampler(gpu);
         _whiteFallbackId = RegisterBuiltinWhite();
+        _defaultMaterialId = RegisterBuiltinDefaultMaterial();
     }
 
     // ─── Mesh ──────────────────────────────────────────────────────────
@@ -138,7 +143,53 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         return new GpuTextureHandles(gpu.View, _sharedSampler);
     }
 
+    // ─── Material ──────────────────────────────────────────────────────
+
+    public FMaterialId RegisterMaterial(string name, Func<MaterialId, MaterialAsset> build)
+    {
+        var id = new MaterialId(_nextMaterialId++);
+        _materials[id.Value] = build(id);
+        return FResult.Ok<MaterialId, AssetError>(id);
+    }
+
+    /// <summary>
+    /// In-place edit of an existing material asset. The editor calls this when
+    /// the user moves a slider; consumers re-resolve via <see cref="GetMaterial"/>
+    /// each frame, so the new value lights up immediately.
+    /// </summary>
+    public void UpdateMaterial(MaterialId id, MaterialAsset asset)
+    {
+        if (!_materials.ContainsKey(id.Value))
+            throw new KeyNotFoundException($"Unknown MaterialId({id.Value})");
+        if (asset.Id != id)
+            throw new ArgumentException($"Asset id {asset.Id} does not match update target {id}.", nameof(asset));
+        _materials[id.Value] = asset;
+    }
+
+    public MaterialAsset GetMaterial(MaterialId id)
+    {
+        var key = id.IsNone ? _defaultMaterialId.Value : id.Value;
+        return _materials.TryGetValue(key, out var asset)
+            ? asset
+            : throw new KeyNotFoundException($"Unknown MaterialId({id.Value})");
+    }
+
+    public bool TryGetMaterial(MaterialId id, out MaterialAsset asset) =>
+        _materials.TryGetValue(id.IsNone ? _defaultMaterialId.Value : id.Value, out asset!);
+
+    public IEnumerable<MaterialAsset> AllMaterials => _materials.Values;
+
     // ─── Built-in fallback ────────────────────────────────────────────
+
+    private MaterialId RegisterBuiltinDefaultMaterial()
+    {
+        // Untextured grey Blinn-Phong; resolves whenever a Drawable carries
+        // MaterialId.None, so render code can dereference unconditionally.
+        var result = RegisterMaterial("__default", id => BlinnPhongMaterial.Default(id, "__default"));
+        return result.Match(
+            ok: id => id,
+            error: e => throw new InvalidOperationException($"Failed to register default material: {e.Message}"));
+    }
 
     private TextureId RegisterBuiltinWhite()
     {
@@ -333,6 +384,7 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         }
         _textureGpu.Clear();
         _textures.Clear();
+        _materials.Clear();
 
         if (_sharedSampler.Handle != 0)
         {

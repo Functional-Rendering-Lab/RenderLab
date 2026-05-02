@@ -21,11 +21,13 @@ public abstract record UiMsg
     public sealed record AddDirectionalLight() : UiMsg;
     public sealed record RemoveLight(int Index) : UiMsg;
     public sealed record UpdateAmbient(HemisphericAmbient Ambient) : UiMsg;
-    public sealed record AddDrawable(string Name, MeshId Mesh, Transform Transform, MaterialParams Material, TextureId AlbedoMap) : UiMsg;
+    public sealed record AddDrawable(string Name, MeshId Mesh, Transform Transform, MaterialId Material) : UiMsg;
     public sealed record RemoveDrawable(Guid LocalId) : UiMsg;
     public sealed record SelectDrawable(Guid? LocalId) : UiMsg;
     public sealed record SetDrawableTransform(Guid LocalId, Transform Transform) : UiMsg;
-    public sealed record SetDrawableMaterial(Guid LocalId, MaterialParams Material) : UiMsg;
+    /// <summary>Edits a registered material asset in place (registry side-effect).
+    /// The reducer passes through; the shell applies the update to the registry.</summary>
+    public sealed record UpdateMaterialAsset(MaterialId Id, MaterialAsset Asset) : UiMsg;
     public sealed record SetShading(ShadingMode Mode) : UiMsg;
     public sealed record SetLightingOnly(bool On) : UiMsg;
     public sealed record SetViz(VisualizationMode Mode) : UiMsg;

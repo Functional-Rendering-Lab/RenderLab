@@ -9,7 +9,7 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 RenderLab.App              (desktop composition root — wires everything)
   |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
   |     |-> RenderLab.Scene      (Scene snapshot, Camera, Drawable, Light DU, HemisphericAmbient, MaterialParams — pure)
-  |     |     '-> RenderLab.Assets    (MeshId, MeshAsset, Vertex3D, MeshData, ObjLoader, IAssetCatalog, AssetError — pure)
+  |     |     '-> RenderLab.Assets    (MeshId/TextureId/MaterialId, MeshAsset, TextureAsset, MaterialAsset DU + BlinnPhongMaterial, Vertex3D, MeshData, ObjLoader, IAssetCatalog, AssetError — pure)
   |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
   |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
@@ -43,7 +43,9 @@ GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Alloca
 
 ### Asset boundary
 
-Pure code references meshes (and, in upcoming steps, materials and textures) by typed ID — `MeshId` in `RenderLab.Assets`. The pure `IAssetCatalog` view returns CPU-side `MeshAsset` records and is what scene builders, papers, and panels consume. The shell-side `IGpuAssetResolver` (in `RenderLab.Gpu.Assets`) hands out live `GpuMeshHandles` (vertex/index buffers + index count) at the moment of recording, so GPU handles never leak into `Scene`, `Graph`, or push-constant builders. `AssetRegistry` in `RenderLab.Gpu.Assets` is the single owner of both views — it implements `IAssetCatalog` + `IGpuAssetResolver` + `IDisposable` and is constructed with `GpuState` so it can upload and free buffers.
+Pure code references meshes, textures, and materials by typed ID — `MeshId` / `TextureId` / `MaterialId` in `RenderLab.Assets`. The pure `IAssetCatalog` view returns CPU-side `MeshAsset` / `TextureAsset` / `MaterialAsset` records and is what scene builders, papers, and panels consume. The shell-side `IGpuAssetResolver` (in `RenderLab.Gpu.Assets`) hands out live `GpuMeshHandles` and `GpuTextureHandles` at the moment of recording, so GPU handles never leak into `Scene`, `Graph`, or push-constant builders. `AssetRegistry` in `RenderLab.Gpu.Assets` is the single owner of both views — it implements `IAssetCatalog` + `IGpuAssetResolver` + `IDisposable` and is constructed with `GpuState` so it can upload, free buffers, and serve in-place edits to material assets via `UpdateMaterial`. Built-in fallbacks (1×1 white texture, default Blinn-Phong material) cover `TextureId.None` and `MaterialId.None` so render code dereferences unconditionally.
+
+Material assets are mutable in place — the editor edits the named asset by id rather than carrying a copy of the parameters on each `Drawable`. The pure UI reducer treats `UiMsg.UpdateMaterialAsset` as a no-op; the shell intercepts those messages and applies them to the registry before resolving the next frame.
 
 `Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale.
 
@@ -60,8 +62,9 @@ UiModel (editable per-frame state)
 Scene snapshot ..................................... PURE
   Immutable record built each frame in the demo:
   Scene(Camera, ImmutableArray<Drawable>, ImmutableArray<Light>)
-  Drawable = (Name, MeshId, Transform, MaterialParams). GPU buffers
-  are resolved from MeshId at record time, never stored on Scene.
+  Drawable = (Name, MeshId, Transform, MaterialId). GPU buffers
+  are resolved from MeshId at record time; the material asset is
+  resolved from MaterialId via IAssetCatalog. Neither lives on Scene.
   Consumed by pass recorders and the Scene inspector panel.
   Render-config (shading mode, viz mode, clear color) stays on UiModel.
   |
@@ -130,13 +133,15 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `MaterialParams` | `Scene/MaterialParams.cs` | Blinn-Phong material (specular strength, shininess) — encoding matches GBuffer alpha |
 | `GpuLight` | `Scene/GpuLight.cs` | std430 GPU layout of a light (paired with `Light` struct in `lighting.frag`); `PositionType.w` is the type tag |
 | `LightPacking` | `Scene/LightPacking.cs` | Pure packer from the `Light` DU to `GpuLight` — partitions points-first then directionals |
-| `Scene` / `Drawable` | `Scene/Scene.cs`, `Scene/Drawable.cs` | Per-frame immutable snapshot (camera, drawables, lights). `Drawable` carries `(Name, MeshId, Transform, MaterialParams)`; pass recorders loop drawables and resolve GPU handles via `IGpuAssetResolver` |
-| `MeshId` | `Assets/MeshId.cs` | Opaque typed handle to a registered mesh (pure); `None` is the zero sentinel |
-| `MeshAsset` | `Assets/MeshAsset.cs` | CPU-side mesh record (id, name, `MeshData`) returned by the catalog |
-| `IAssetCatalog` | `Assets/IAssetCatalog.cs` | Pure read interface from IDs to CPU-side asset records |
+| `Scene` / `Drawable` | `Scene/Scene.cs`, `Scene/Drawable.cs` | Per-frame immutable snapshot (camera, drawables, lights). `Drawable` carries `(Name, MeshId, Transform, MaterialId)`; pass recorders loop drawables, resolve GPU handles via `IGpuAssetResolver` and material asset via `IAssetCatalog` |
+| `MeshId` / `TextureId` / `MaterialId` | `Assets/*.cs` | Opaque typed handles (pure); `None` is the zero sentinel for each |
+| `MeshAsset` / `TextureAsset` | `Assets/*.cs` | CPU-side asset records returned by the catalog |
+| `MaterialAsset` / `BlinnPhongMaterial` | `Assets/MaterialAsset.cs` | DU root + Blinn-Phong concrete (Albedo, SpecularStrength, Shininess, AlbedoMap). Editable in place via `AssetRegistry.UpdateMaterial` |
+| `IAssetCatalog` | `Assets/IAssetCatalog.cs` | Pure read interface from IDs to CPU-side asset records (meshes, textures, materials) |
 | `AssetError` | `Assets/AssetError.cs` | DU for asset failures: `FileNotFound`, `InvalidFormat`, `GpuUploadFailed`, `UnknownId` |
-| `AssetRegistry` | `Gpu/Assets/AssetRegistry.cs` | Shell owner of mesh assets and their GPU buffers; implements `IAssetCatalog` + `IGpuAssetResolver` |
-| `IGpuAssetResolver` / `GpuMeshHandles` | `Gpu/Assets/` | Shell-side resolver from `MeshId` to live vertex/index buffers + index count |
+| `AssetRegistry` | `Gpu/Assets/AssetRegistry.cs` | Shell owner of mesh + texture GPU resources and material asset records; implements `IAssetCatalog` + `IGpuAssetResolver`; built-in white texture + default material registered at construction |
+| `IGpuAssetResolver` / `GpuMeshHandles` / `GpuTextureHandles` | `Gpu/Assets/` | Shell-side resolver from IDs to live vertex/index buffers and image view + sampler |
+| `MaterialDescriptors` | `Gpu/Assets/MaterialDescriptors.cs` | Per-`TextureId` descriptor-set cache for the GBuffer material slot; one set per texture, reused across frames |
 
 ## Build and Run
 

@@ -1,5 +1,6 @@
 using System.Numerics;
 using ImGuiNET;
+using RenderLab.Assets;
 using RenderLab.Scene;
 using RenderLab.Ui;
 
@@ -16,7 +17,7 @@ using Scene = RenderLab.Scene.Scene;
 /// </summary>
 public static class ScenePanel
 {
-    public static void Draw(UiModel model, Scene scene, Action<UiMsg> dispatch)
+    public static void Draw(UiModel model, Scene scene, IAssetCatalog catalog, Action<UiMsg> dispatch)
     {
         ImGui.SetNextWindowPos(new Vector2(640, 10), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(360, 460), ImGuiCond.FirstUseEver);
@@ -39,7 +40,7 @@ public static class ScenePanel
         if (ImGui.TreeNodeEx($"Drawables ({model.Drawables.Length})", ImGuiTreeNodeFlags.DefaultOpen))
         {
             DrawDrawableList(model, dispatch);
-            DrawSelectedInspector(model, dispatch);
+            DrawSelectedInspector(model, catalog, dispatch);
             ImGui.TreePop();
         }
 
@@ -84,7 +85,9 @@ public static class ScenePanel
         {
             var src = model.Drawables.First(d => d.LocalId == model.SelectedDrawable);
             var nudged = src.Transform with { Position = src.Transform.Position + new Vector3(1f, 0f, 0f) };
-            dispatch(new UiMsg.AddDrawable($"{src.Name} copy", src.Mesh, nudged, src.Material, src.AlbedoMap));
+            // Cloned drawable shares the source material id — editing it edits both.
+            // A "duplicate material" affordance lands with the asset browser.
+            dispatch(new UiMsg.AddDrawable($"{src.Name} copy", src.Mesh, nudged, src.Material));
         }
         ImGui.SameLine();
         if (ImGui.Button("- remove") && model.SelectedDrawable is Guid removeId)
@@ -92,7 +95,7 @@ public static class ScenePanel
         if (!hasSelection) ImGui.EndDisabled();
     }
 
-    private static void DrawSelectedInspector(UiModel model, Action<UiMsg> dispatch)
+    private static void DrawSelectedInspector(UiModel model, IAssetCatalog catalog, Action<UiMsg> dispatch)
     {
         if (model.SelectedDrawable is not Guid id) return;
         var drawable = model.Drawables.FirstOrDefault(d => d.LocalId == id);
@@ -107,12 +110,17 @@ public static class ScenePanel
         if (!nextTransform.Equals(t))
             dispatch(new UiMsg.SetDrawableTransform(id, nextTransform));
 
-        var m = drawable.Material;
-        var albedo = DebugFields.ColorEdit("Albedo", m.Albedo);
-        var spec = DebugFields.DragFloat("Spec Strength", m.SpecularStrength, 0.005f, 0f, 1f);
-        var shininess = DebugFields.DragFloat("Shininess", m.Shininess, 1f, 1f, MaterialParams.ShininessRange);
-        var nextMaterial = new MaterialParams(albedo, spec, shininess);
-        if (!nextMaterial.Equals(m))
-            dispatch(new UiMsg.SetDrawableMaterial(id, nextMaterial));
+        // Material edits target the registered asset by id. The reducer is a
+        // no-op on UpdateMaterialAsset; the shell applies it to the registry
+        // before re-resolving for the next frame.
+        if (catalog.GetMaterial(drawable.Material) is BlinnPhongMaterial bp)
+        {
+            var albedo = DebugFields.ColorEdit("Albedo", bp.Albedo);
+            var spec = DebugFields.DragFloat("Spec Strength", bp.SpecularStrength, 0.005f, 0f, 1f);
+            var shininess = DebugFields.DragFloat("Shininess", bp.Shininess, 1f, 1f, MaterialParams.ShininessRange);
+            var next = bp with { Albedo = albedo, SpecularStrength = spec, Shininess = shininess };
+            if (!next.Equals(bp))
+                dispatch(new UiMsg.UpdateMaterialAsset(bp.Id, next));
+        }
     }
 }

@@ -16,11 +16,12 @@ public static class UiUpdate
         UiMsg.AddDirectionalLight       => model with { Lights = model.Lights.Add(UiModel.DefaultNewDirectionalLight) },
         UiMsg.RemoveLight m             => RemoveLight(model, m.Index),
         UiMsg.UpdateAmbient m           => model with { Ambient = m.Ambient },
-        UiMsg.AddDrawable m             => AddDrawable(model, m.Name, m.Mesh, m.Transform, m.Material, m.AlbedoMap),
+        UiMsg.AddDrawable m             => AddDrawable(model, m.Name, m.Mesh, m.Transform, m.Material),
         UiMsg.RemoveDrawable m          => RemoveDrawable(model, m.LocalId),
         UiMsg.SelectDrawable m          => model with { SelectedDrawable = m.LocalId },
         UiMsg.SetDrawableTransform m    => UpdateDrawable(model, m.LocalId, d => d with { Transform = m.Transform }),
-        UiMsg.SetDrawableMaterial m     => UpdateDrawable(model, m.LocalId, d => d with { Material = m.Material }),
+        // UpdateMaterialAsset is a registry side-effect; the shell handles it.
+        UiMsg.UpdateMaterialAsset       => model,
         UiMsg.SetShading m              => model with { Shading = m.Mode },
         UiMsg.SetLightingOnly m         => model with { LightingOnly = m.On },
         UiMsg.SetViz m                  => model with { Viz = m.Mode },
@@ -38,9 +39,9 @@ public static class UiUpdate
             ? model with { Lights = model.Lights.RemoveAt(index) }
             : model;
 
-    private static UiModel AddDrawable(UiModel model, string name, RenderLab.Assets.MeshId mesh, Transform transform, MaterialParams material, RenderLab.Assets.TextureId albedoMap)
+    private static UiModel AddDrawable(UiModel model, string name, RenderLab.Assets.MeshId mesh, Transform transform, RenderLab.Assets.MaterialId material)
     {
-        var drawable = new EditableDrawable(Guid.NewGuid(), name, mesh, transform, material, albedoMap);
+        var drawable = new EditableDrawable(Guid.NewGuid(), name, mesh, transform, material);
         return model with
         {
             Drawables = model.Drawables.Add(drawable),

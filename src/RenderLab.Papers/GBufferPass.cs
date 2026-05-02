@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
+using RenderLab.Assets;
 using RenderLab.Gpu;
 using RenderLab.Gpu.Assets;
 using RenderLab.Scene;
@@ -25,11 +26,24 @@ public static class GBufferPass
         Shininess = material.Shininess,
     };
 
+    /// <summary>
+    /// Translates a <see cref="BlinnPhongMaterial"/> asset into the GBuffer's
+    /// flat parameter struct. Other material kinds need their own conversion
+    /// (or fall through to the default). Centralised here so paper code keeps
+    /// the asset-shape dependency, not the rest of the engine.
+    /// </summary>
+    public static MaterialParams ToParams(MaterialAsset asset) => asset switch
+    {
+        BlinnPhongMaterial bp => new MaterialParams(bp.Albedo, bp.SpecularStrength, bp.Shininess),
+        _                     => MaterialParams.Default,
+    };
+
     public static unsafe void Record(
         Vk vk,
         CommandBuffer cb,
         GBufferPassResources r,
         ImmutableArray<Drawable> drawables,
+        IAssetCatalog catalog,
         IGpuAssetResolver resolver,
         MaterialDescriptors materials,
         Camera camera)
@@ -38,12 +52,14 @@ public static class GBufferPass
 
         foreach (var d in drawables)
         {
-            var pc = BuildPushConstants(d.Transform, camera, d.Material);
+            var asset = catalog.GetMaterial(d.Material);
+            var albedoMap = asset is BlinnPhongMaterial bp ? bp.AlbedoMap : TextureId.None;
+            var pc = BuildPushConstants(d.Transform, camera, ToParams(asset));
             vk.CmdPushConstants(cb, r.PipelineLayout,
                 ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
                 0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
 
-            var matSet = materials.GetOrAllocate(d.AlbedoMap);
+            var matSet = materials.GetOrAllocate(albedoMap);
             vk.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, r.PipelineLayout,
                 0, 1, &matSet, 0, null);
 
