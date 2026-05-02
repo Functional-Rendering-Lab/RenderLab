@@ -1,4 +1,4 @@
-namespace RenderLab.Scene;
+namespace RenderLab.Assets;
 
 /// <summary>
 /// Immutable indexed mesh: a vertex buffer plus a 32-bit index buffer.

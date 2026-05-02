@@ -8,13 +8,16 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 ```
 RenderLab.App              (desktop composition root — wires everything)
   |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
-  |     |-> RenderLab.Scene      (Scene snapshot, Camera, Mesh, Light DU, HemisphericAmbient, MaterialParams — pure data)
+  |     |-> RenderLab.Scene      (Scene snapshot, Camera, Drawable, Light DU, HemisphericAmbient, MaterialParams — pure)
+  |     |     '-> RenderLab.Assets    (MeshId, MeshAsset, Vertex3D, MeshData, ObjLoader, IAssetCatalog, AssetError — pure)
   |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
   |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
+  |     |-> RenderLab.Assets
   |     '-> RenderLab.Functional (Optional, Result, Pipe)
   |-> RenderLab.Graph
   |-> RenderLab.Scene
+  |-> RenderLab.Assets
   |-> RenderLab.Ui         (pure Elm-style state: Model/Msg/Update/Intent — no ImGui, no Vulkan)
   |-> RenderLab.Ui.ImGui   (imperative shell for RenderLab.Ui: ImGui views + GPU timestamps -> depends on Gpu, Ui)
   '-> RenderLab.Platform.Desktop  (GLFW window — no internal deps)
@@ -24,19 +27,23 @@ No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero sid
 
 ### Ui ↔ Ui.ImGui split
 
-`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `DemoId`, `FrameStats`. It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
+`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `DemoId`, `FrameStats`, plus `EditableDrawable` (the editor-side mirror of a scene `Drawable`). It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
 
-`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Each debug panel (`AppMenuBar`, `LightingDebugMenu`, `FreeCameraDebugMenu`, `RenderGraphDebugMenu`, `SphereDebugMenu`, `VisualizationDebugMenu`, `ScenePanel`) reads an immutable slice of the model, draws ImGui widgets, and returns `UiIntent`s the shell folds back through `AppUiUpdate`. `ScenePanel` is read-only and inspects the per-frame `Scene` snapshot rather than `UiModel`.
+`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Each debug panel (`AppMenuBar`, `LightingDebugMenu`, `FreeCameraDebugMenu`, `RenderGraphDebugMenu`, `VisualizationDebugMenu`, `ScenePanel`) reads an immutable slice of the model, draws ImGui widgets, and returns `UiIntent`s the shell folds back through `AppUiUpdate`. `ScenePanel` is the editor surface for the drawable list — selection, add (clones the selection), remove, and an inline transform/material inspector for the selected drawable; the camera and light sub-trees are read-only.
 
 The assembly is `RenderLab.Ui.ImGui` but the last namespace segment collides with `ImGuiNET.ImGui` (the ImGui entry-point class) during simple-name lookup. To keep the assembly name matching the folder, each file declares a `using ImGui = ImGuiNET.ImGui;` alias *inside* the namespace — compilation-unit aliases lose to the parent-namespace walk-up, so the alias must live after `namespace RenderLab.Ui.ImGui;`.
 
 ## Purity Boundary
 
-Everything in `RenderLab.Graph` and `RenderLab.Scene` is pure — no side effects, no mutation, fully unit-testable without a GPU.
+Everything in `RenderLab.Graph`, `RenderLab.Scene`, and `RenderLab.Assets` is pure — no side effects, no mutation, fully unit-testable without a GPU.
 
 Everything in `RenderLab.Gpu` and `RenderLab.Platform.Desktop` performs side effects. `GpuState` is the single mutable kernel, passed explicitly by reference — never global, never static. `DeviceCapabilities` is an immutable record on `GpuState`, queried once at device creation — papers read it instead of calling Vulkan directly.
 
 GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Allocator.cs`), hung off `GpuState.Allocator`. Every `vkAllocateMemory` goes through it; resource creation returns `(handle, Allocation)` so buffer/memory lifetimes are coupled at the type level, and callers pick a `MemoryIntent` (`GpuOnly`, `CpuToGpu`) instead of hand-rolling memory-property flags. The ImGui per-frame vertex/index buffers grow in doubling steps and stay mapped for the lifetime of the instance, so `vkAllocateMemory` fires O(log N) times at warm-up rather than every resize. Sub-allocation stays on the roadmap for when it becomes a measurable bottleneck.
+
+### Asset boundary
+
+Pure code references meshes (and, in upcoming steps, materials and textures) by typed ID — `MeshId` in `RenderLab.Assets`. The pure `IAssetCatalog` view returns CPU-side `MeshAsset` records and is what scene builders, papers, and panels consume. The shell-side `IGpuAssetResolver` (in `RenderLab.Gpu.Assets`) hands out live `GpuMeshHandles` (vertex/index buffers + index count) at the moment of recording, so GPU handles never leak into `Scene`, `Graph`, or push-constant builders. `AssetRegistry` in `RenderLab.Gpu.Assets` is the single owner of both views — it implements `IAssetCatalog` + `IGpuAssetResolver` + `IDisposable` and is constructed with `GpuState` so it can upload and free buffers.
 
 `Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale.
 
@@ -52,7 +59,9 @@ UiModel (editable per-frame state)
   v
 Scene snapshot ..................................... PURE
   Immutable record built each frame in the demo:
-  Scene(Camera, ImmutableArray<SceneMesh>, ImmutableArray<Light>)
+  Scene(Camera, ImmutableArray<Drawable>, ImmutableArray<Light>)
+  Drawable = (Name, MeshId, Transform, MaterialParams). GPU buffers
+  are resolved from MeshId at record time, never stored on Scene.
   Consumed by pass recorders and the Scene inspector panel.
   Render-config (shading mode, viz mode, clear color) stays on UiModel.
   |
@@ -121,7 +130,13 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `MaterialParams` | `Scene/MaterialParams.cs` | Blinn-Phong material (specular strength, shininess) — encoding matches GBuffer alpha |
 | `GpuLight` | `Scene/GpuLight.cs` | std430 GPU layout of a light (paired with `Light` struct in `lighting.frag`); `PositionType.w` is the type tag |
 | `LightPacking` | `Scene/LightPacking.cs` | Pure packer from the `Light` DU to `GpuLight` — partitions points-first then directionals |
-| `Scene` / `SceneMesh` | `Scene/Scene.cs` | Per-frame immutable snapshot (camera, meshes, lights) consumed by pass recorders and the Scene inspector |
+| `Scene` / `Drawable` | `Scene/Scene.cs`, `Scene/Drawable.cs` | Per-frame immutable snapshot (camera, drawables, lights). `Drawable` carries `(Name, MeshId, Transform, MaterialParams)`; pass recorders loop drawables and resolve GPU handles via `IGpuAssetResolver` |
+| `MeshId` | `Assets/MeshId.cs` | Opaque typed handle to a registered mesh (pure); `None` is the zero sentinel |
+| `MeshAsset` | `Assets/MeshAsset.cs` | CPU-side mesh record (id, name, `MeshData`) returned by the catalog |
+| `IAssetCatalog` | `Assets/IAssetCatalog.cs` | Pure read interface from IDs to CPU-side asset records |
+| `AssetError` | `Assets/AssetError.cs` | DU for asset failures: `FileNotFound`, `InvalidFormat`, `GpuUploadFailed`, `UnknownId` |
+| `AssetRegistry` | `Gpu/Assets/AssetRegistry.cs` | Shell owner of mesh assets and their GPU buffers; implements `IAssetCatalog` + `IGpuAssetResolver` |
+| `IGpuAssetResolver` / `GpuMeshHandles` | `Gpu/Assets/` | Shell-side resolver from `MeshId` to live vertex/index buffers + index count |
 
 ## Build and Run
 
@@ -150,13 +165,16 @@ dotnet test tests/RenderLab.Graph.Tests
 src/
   RenderLab.Functional/        Optional<T>, Result<T,E>, Pipe extensions
   RenderLab.Graph/             RenderGraphCompiler, pass/barrier types
+  RenderLab.Assets/            MeshId, MeshAsset, Vertex3D, MeshData, ObjLoader,
+                               IAssetCatalog, AssetError (pure data + parsing)
   RenderLab.Gpu/               Vulkan device, swapchain, buffers, images,
                                pipelines, descriptors, graph executor,
-                               Allocator, DeviceCapabilities, PushConstants
-  RenderLab.Scene/             Scene snapshot, Camera, MeshData, Vertex3D,
-                               Light DU (PointLight, DirectionalLight),
-                               Direction, Intensity, HemisphericAmbient,
-                               MaterialParams, FreeCameraController, OBJ loader
+                               Allocator, DeviceCapabilities, PushConstants,
+                               Assets/AssetRegistry (mesh registry + GPU resolver)
+  RenderLab.Scene/             Scene snapshot, Camera, Drawable, Light DU
+                               (PointLight, DirectionalLight), Direction,
+                               Intensity, HemisphericAmbient, MaterialParams,
+                               FreeCameraController
   RenderLab.Platform.Desktop/  GLFW window wrapper (poll-based)
   RenderLab.Papers/            Pass modules: GBufferPass, DeferredLighting,
                                TonemapPass, DebugVizPass

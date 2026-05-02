@@ -2,7 +2,7 @@ using System.Numerics;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 
-namespace RenderLab.Scene;
+namespace RenderLab.Assets;
 
 /// <summary>
 /// Standard 3D mesh vertex: position, normal, UV. Pairs with

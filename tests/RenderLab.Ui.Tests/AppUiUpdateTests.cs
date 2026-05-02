@@ -34,8 +34,8 @@ public class AppUiUpdateTests
     [Fact]
     public void SetPanelVisible_independentOfOtherPanels()
     {
-        var m = AppUiUpdate.Apply(Fresh(), new AppUiMsg.SetPanelVisible(PanelId.Sphere, false));
-        Assert.False(m.IsPanelVisible(PanelId.Sphere));
+        var m = AppUiUpdate.Apply(Fresh(), new AppUiMsg.SetPanelVisible(PanelId.Scene, false));
+        Assert.False(m.IsPanelVisible(PanelId.Scene));
         Assert.True(m.IsPanelVisible(PanelId.Camera));
         Assert.True(m.IsPanelVisible(PanelId.Lighting));
     }

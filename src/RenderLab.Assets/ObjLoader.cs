@@ -1,7 +1,7 @@
 using System.Globalization;
 using System.Numerics;
 
-namespace RenderLab.Scene;
+namespace RenderLab.Assets;
 
 /// <summary>
 /// Minimal Wavefront OBJ parser. Supports positions (v), normals (vn), texture coords (vt),
@@ -102,8 +102,9 @@ public static class ObjLoader
         var verts = new List<Vertex3D>();
         var idx = new List<uint>();
 
-        // 6 faces, each with unique normals
-        // right × up must equal normal for consistent CCW winding
+        // 6 faces, each with unique normals.
+        // right × up = normal; triangles wound CW from outside to match the
+        // GBuffer pipeline's FrontFace.Clockwise + back-face cull.
         ReadOnlySpan<(Vector3 normal, Vector3 right, Vector3 up)> faces =
         [
             ( Vector3.UnitZ,  Vector3.UnitX, Vector3.UnitY),   // front:  X × Y =  Z ✓
@@ -122,7 +123,7 @@ public static class ObjLoader
             verts.Add(new Vertex3D(center + r * 0.5f - u * 0.5f, n, new Vector2(1, 0)));
             verts.Add(new Vertex3D(center + r * 0.5f + u * 0.5f, n, new Vector2(1, 1)));
             verts.Add(new Vertex3D(center - r * 0.5f + u * 0.5f, n, new Vector2(0, 1)));
-            idx.AddRange([b, b + 1, b + 2, b, b + 2, b + 3]);
+            idx.AddRange([b, b + 2, b + 1, b, b + 3, b + 2]);
         }
 
         return new MeshData([.. verts], [.. idx]);

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
+    <PackageReference Include="Silk.NET.Vulkan" Version="2.23.0" />
   </ItemGroup>
 
   <PropertyGroup>
@@ -9,7 +9,6 @@
     <LangVersion>13</LangVersion>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
 </Project>

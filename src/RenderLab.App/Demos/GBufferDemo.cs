@@ -6,6 +6,7 @@ using RenderLab.Ui.ImGui;
 using RenderLab.Gpu;
 using RenderLab.Papers;
 using RenderLab.Ui;
+using RenderLab.Assets;
 using RenderLab.Platform.Desktop;
 using RenderLab.Scene;
 using Buffer = Silk.NET.Vulkan.Buffer;

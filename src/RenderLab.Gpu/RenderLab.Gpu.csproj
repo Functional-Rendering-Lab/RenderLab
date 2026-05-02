@@ -3,6 +3,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
     <ProjectReference Include="..\RenderLab.Graph\RenderLab.Graph.csproj" />
+    <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
   </ItemGroup>
 
   <ItemGroup>

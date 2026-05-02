@@ -1,6 +1,8 @@
+using System.Collections.Immutable;
 using System.Runtime.InteropServices;
 using Silk.NET.Vulkan;
 using RenderLab.Gpu;
+using RenderLab.Gpu.Assets;
 using RenderLab.Scene;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
@@ -27,10 +29,55 @@ public static class GBufferPass
         Vk vk,
         CommandBuffer cb,
         GBufferPassResources r,
+        ImmutableArray<Drawable> drawables,
+        IGpuAssetResolver resolver,
+        Camera camera)
+    {
+        BeginPass(vk, cb, r);
+
+        foreach (var d in drawables)
+        {
+            var pc = BuildPushConstants(d.Transform, camera, d.Material);
+            vk.CmdPushConstants(cb, r.PipelineLayout,
+                ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+                0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
+
+            var h = resolver.ResolveMesh(d.Mesh);
+            var vb = h.VertexBuffer;
+            ulong offset = 0;
+            vk.CmdBindVertexBuffers(cb, 0, 1, &vb, &offset);
+            vk.CmdBindIndexBuffer(cb, h.IndexBuffer, 0, IndexType.Uint32);
+            vk.CmdDrawIndexed(cb, h.IndexCount, 1, 0, 0, 0);
+        }
+
+        vk.CmdEndRenderPass(cb);
+    }
+
+    public static unsafe void Record(
+        Vk vk,
+        CommandBuffer cb,
+        GBufferPassResources r,
         GBufferPushConstants pc,
         Buffer vertexBuffer,
         Buffer indexBuffer,
         uint indexCount)
+    {
+        BeginPass(vk, cb, r);
+
+        vk.CmdPushConstants(cb, r.PipelineLayout,
+            ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
+            0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
+
+        var vb = vertexBuffer;
+        ulong offset = 0;
+        vk.CmdBindVertexBuffers(cb, 0, 1, &vb, &offset);
+        vk.CmdBindIndexBuffer(cb, indexBuffer, 0, IndexType.Uint32);
+        vk.CmdDrawIndexed(cb, indexCount, 1, 0, 0, 0);
+
+        vk.CmdEndRenderPass(cb);
+    }
+
+    static unsafe void BeginPass(Vk vk, CommandBuffer cb, GBufferPassResources r)
     {
         var clearValues = stackalloc ClearValue[4];
         clearValues[0] = new ClearValue(new ClearColorValue(0, 0, 0, 0));
@@ -56,18 +103,6 @@ public static class GBufferPass
 
         var scissor = new Rect2D(new Offset2D(0, 0), r.Extent);
         vk.CmdSetScissor(cb, 0, 1, &scissor);
-
-        vk.CmdPushConstants(cb, r.PipelineLayout,
-            ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
-            0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
-
-        var vb = vertexBuffer;
-        ulong offset = 0;
-        vk.CmdBindVertexBuffers(cb, 0, 1, &vb, &offset);
-        vk.CmdBindIndexBuffer(cb, indexBuffer, 0, IndexType.Uint32);
-        vk.CmdDrawIndexed(cb, indexCount, 1, 0, 0, 0);
-
-        vk.CmdEndRenderPass(cb);
     }
 }
 

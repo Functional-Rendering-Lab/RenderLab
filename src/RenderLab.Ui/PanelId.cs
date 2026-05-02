@@ -10,7 +10,6 @@ public enum PanelId
     Visualization,
     Camera,
     Lighting,
-    Sphere,
     RenderGraph,
     Scene,
 }

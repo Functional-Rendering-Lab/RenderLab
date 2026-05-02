@@ -5,7 +5,9 @@ using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.Vulkan;
 using RenderLab.Ui.ImGui;
+using RenderLab.Assets;
 using RenderLab.Gpu;
+using RenderLab.Gpu.Assets;
 using RenderLab.Graph;
 using RenderLab.Papers;
 using RenderLab.Platform.Desktop;
@@ -41,10 +43,9 @@ public sealed class DeferredDemo : IDemo
     GpuState gpu = null!;
 
     // Mesh
-    uint indexCount;
-    MeshData sphereMesh = null!;
-    Buffer vertexBuffer, indexBuffer;
-    Allocation vertexAlloc, indexAlloc;
+    AssetRegistry assets = null!;
+    MeshId sphereMeshId;
+    MeshId cubeMeshId;
 
     // Shaders & render passes
     RenderPass gbufferRenderPass, lightingRenderPass, tonemapRenderPass, overlayRenderPass;
@@ -203,9 +204,8 @@ public sealed class DeferredDemo : IDemo
 
     void Init()
     {
-        // ─── Load mesh ───────────────────────────────────────────────
-        sphereMesh = ObjLoader.CreateSphere();
-        indexCount = (uint)sphereMesh.Indices.Length;
+        // ─── Load mesh (CPU side) ────────────────────────────────────
+        var sphereMesh = ObjLoader.CreateSphere();
 
         Console.WriteLine($"RenderLab M3 — Deferred Baseline");
         Console.WriteLine($"  Mesh: {sphereMesh.Vertices.Length} vertices, {sphereMesh.Indices.Length / 3} triangles");
@@ -216,11 +216,26 @@ public sealed class DeferredDemo : IDemo
         gpu = VulkanDevice.Create(vk, window.GetRequiredVulkanExtensions(),
             instance => window.CreateVulkanSurface(instance));
 
-        // ─── Upload mesh to GPU ──────────────────────────────────────
-        (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit,
-            sphereMesh.Vertices);
-        (indexBuffer, indexAlloc) = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit,
-            sphereMesh.Indices);
+        // ─── Register meshes with the asset registry ─────────────────
+        assets = new AssetRegistry(gpu);
+        sphereMeshId = assets.RegisterMesh("Sphere", sphereMesh).Match(
+            ok: id => id,
+            error: e => throw new InvalidOperationException($"Failed to register sphere mesh: {e.Message}"));
+        cubeMeshId = assets.RegisterMesh("Cube", ObjLoader.CreateCube()).Match(
+            ok: id => id,
+            error: e => throw new InvalidOperationException($"Failed to register cube mesh: {e.Message}"));
+
+        // ─── Seed editable drawables ─────────────────────────────────
+        var sphereDrawable = new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMeshId, Transform.Default, MaterialParams.Default);
+        var cubeDrawable   = new EditableDrawable(
+            Guid.NewGuid(), "Cube", cubeMeshId,
+            Transform.Default with { Position = new Vector3(2.5f, 0f, 0f) },
+            MaterialParams.Default);
+        ui = ui with
+        {
+            Drawables = ImmutableArray.Create(sphereDrawable, cubeDrawable),
+            SelectedDrawable = sphereDrawable.LocalId,
+        };
 
         // ─── Shaders ─────────────────────────────────────────────────
         var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
@@ -348,9 +363,7 @@ public sealed class DeferredDemo : IDemo
             PipelineLayout: gbufferPipelineLayout,
             Extent: gpu.SwapchainExtent);
 
-        var mesh = scene.Meshes[0];
-        var pc = GBufferPass.BuildPushConstants(mesh.Transform, scene.Camera, mesh.Material);
-        GBufferPass.Record(api, cb, resources, pc, vertexBuffer, indexBuffer, indexCount);
+        GBufferPass.Record(api, cb, resources, scene.Drawables, assets, scene.Camera);
 
         timestamps.EndPass(api, cb);
     }
@@ -685,11 +698,16 @@ public sealed class DeferredDemo : IDemo
     Scene BuildScene() =>
         BuildScene((float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
 
-    Scene BuildScene(float aspect) => new(
-        Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
-        Meshes: ImmutableArray.Create(
-            new SceneMesh("Sphere", sphereMesh, ui.MeshTransform, ui.Material)),
-        Lights: ui.Lights);
+    Scene BuildScene(float aspect)
+    {
+        var drawables = ImmutableArray.CreateBuilder<Drawable>(ui.Drawables.Length);
+        foreach (var d in ui.Drawables)
+            drawables.Add(new Drawable(d.Name, d.Mesh, d.Transform, d.Material));
+        return new Scene(
+            Camera: FreeCameraController.ToCamera(ui.Camera, aspect),
+            Drawables: drawables.MoveToImmutable(),
+            Lights: ui.Lights);
+    }
 
     // ─── Cleanup ─────────────────────────────────────────────────────
 
@@ -719,8 +737,7 @@ public sealed class DeferredDemo : IDemo
         vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
         vk.DestroyDescriptorSetLayout(gpu.Device, lightStorageDsLayout, null);
 
-        VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
-        VulkanBuffer.Destroy(gpu, indexBuffer, indexAlloc);
+        assets.Dispose();
 
         gpu.Dispose();
         window.Dispose();

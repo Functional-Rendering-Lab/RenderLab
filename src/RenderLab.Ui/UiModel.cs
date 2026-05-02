@@ -6,8 +6,8 @@ namespace RenderLab.Ui;
 
 /// <summary>
 /// Immutable UI / scene-editing state for a demo. One record carries everything
-/// the view can edit — camera, lights, hemispheric ambient, material, mesh
-/// transform, shading and visualization modes. Updated by
+/// the view can edit — camera, lights, hemispheric ambient, an editable list of
+/// drawables (with selection), shading and visualization modes. Updated by
 /// <see cref="UiUpdate.Apply"/> in response to <see cref="UiMsg"/> messages
 /// emitted by the view.
 /// </summary>
@@ -15,8 +15,8 @@ public sealed record UiModel(
     FreeCameraState Camera,
     ImmutableArray<Light> Lights,
     HemisphericAmbient Ambient,
-    MaterialParams Material,
-    Transform MeshTransform,
+    ImmutableArray<EditableDrawable> Drawables,
+    Guid? SelectedDrawable,
     ShadingMode Shading,
     bool LightingOnly,
     VisualizationMode Viz,
@@ -42,8 +42,8 @@ public sealed record UiModel(
                 Color: new Vector3(1.0f, 0.95f, 0.85f),
                 Intensity: Intensity.Of(1.0f))),
         Ambient: HemisphericAmbient.Default,
-        Material: MaterialParams.Default,
-        MeshTransform: Transform.Default,
+        Drawables: ImmutableArray<EditableDrawable>.Empty,
+        SelectedDrawable: null,
         Shading: ShadingMode.BlinnPhong,
         LightingOnly: false,
         Viz: VisualizationMode.Final,
