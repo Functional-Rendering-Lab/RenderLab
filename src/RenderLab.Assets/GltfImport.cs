@@ -37,11 +37,12 @@ public sealed record GltfMaterialBlueprint(
 
 /// <summary>One drawable seed: world-space placement + index references into
 /// <see cref="GltfImport.Meshes"/> and <see cref="GltfImport.Materials"/>.
-/// Kept as raw position/scale so this project doesn't have to depend on
-/// <c>RenderLab.Scene</c> just for <c>Transform</c>.</summary>
+/// Kept as raw position/rotation/scale so this project doesn't have to depend
+/// on <c>RenderLab.Scene</c> just for <c>Transform</c>.</summary>
 public sealed record GltfDrawableBlueprint(
     string Name,
     int MeshIndex,
     int MaterialIndex,
     Vector3 Position,
+    Quaternion Rotation,
     float Scale);

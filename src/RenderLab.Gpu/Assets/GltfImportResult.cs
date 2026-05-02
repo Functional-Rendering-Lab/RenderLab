@@ -22,4 +22,5 @@ public sealed record ImportedDrawable(
     MeshId Mesh,
     MaterialId Material,
     Vector3 Position,
+    Quaternion Rotation,
     float Scale);

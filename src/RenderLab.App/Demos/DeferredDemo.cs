@@ -767,7 +767,7 @@ public sealed class DeferredDemo : IDemo
                 Console.WriteLine($"  glTF: imported {r.Meshes.Length} mesh(es), {r.Textures.Length} texture(s), {r.Materials.Length} material(s), {r.Drawables.Length} drawable(s) from {path}");
                 return r.Drawables.Select(d => new UiMsg.AddDrawable(
                     d.Name, d.Mesh,
-                    new Transform(d.Position, d.Scale),
+                    new Transform(d.Position, d.Rotation, d.Scale),
                     d.Material));
             },
             error: e =>

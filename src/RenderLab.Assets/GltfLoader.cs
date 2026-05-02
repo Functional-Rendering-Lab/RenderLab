@@ -9,8 +9,9 @@ namespace RenderLab.Assets;
 /// Pure parser from a glTF / glb file into a <see cref="GltfImport"/>
 /// blueprint. Decodes vertex buffers into <see cref="Vertex3D"/>, decodes PNG
 /// /JPEG textures via StbImageSharp, and maps glTF's PBR baseColor onto the
-/// engine's Blinn-Phong material. Rotation in node transforms is currently
-/// dropped — the engine's <c>Transform</c> is translation + uniform scale only.
+/// engine's Blinn-Phong material. Node transforms are decomposed into
+/// translation + rotation + uniform scale; non-uniform scale collapses to the
+/// X component (lab limitation, flag if a real asset hits it).
 /// </summary>
 public static class GltfLoader
 {
@@ -141,7 +142,7 @@ public static class GltfLoader
             // Rotation is dropped (the engine Transform doesn't carry one yet);
             // non-uniform scale collapses to the X component.
             var world = node.WorldMatrix;
-            Matrix4x4.Decompose(world, out var scale, out _, out var translation);
+            Matrix4x4.Decompose(world, out var scale, out var rotation, out var translation);
 
             var mi = mesh.LogicalIndex;
             for (int pi = 0; pi < mesh.Primitives.Count; pi++)
@@ -153,6 +154,7 @@ public static class GltfLoader
                     MeshIndex: meshIndex,
                     MaterialIndex: matIndex,
                     Position: translation,
+                    Rotation: rotation,
                     Scale: scale.X));
             }
         }

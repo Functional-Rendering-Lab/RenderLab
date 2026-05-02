@@ -105,8 +105,12 @@ public static class ScenePanel
 
         var t = drawable.Transform;
         var position = DebugFields.DragVector3("Position", t.Position, 0.05f);
+        var eulerCurrent = QuatToEulerDeg(t.Rotation);
+        var eulerNext = DebugFields.DragVector3("Rotation (deg)", eulerCurrent, 1f);
         var scale = DebugFields.DragFloat("Scale", t.Scale, 0.02f, 0.1f, 5f);
-        var nextTransform = t with { Position = position, Scale = scale };
+
+        var rotation = eulerNext == eulerCurrent ? t.Rotation : EulerDegToQuat(eulerNext);
+        var nextTransform = t with { Position = position, Rotation = rotation, Scale = scale };
         if (!nextTransform.Equals(t))
             dispatch(new UiMsg.SetDrawableTransform(id, nextTransform));
 
@@ -122,5 +126,31 @@ public static class ScenePanel
             if (!next.Equals(bp))
                 dispatch(new UiMsg.UpdateMaterialAsset(bp.Id, next));
         }
+    }
+
+    // Quaternion ↔ Euler conversion for the inspector. Tait-Bryan ZYX
+    // intrinsic (roll-pitch-yaw) — the same convention
+    // <see cref="Quaternion.CreateFromYawPitchRoll"/> produces, so a
+    // round-trip is stable away from gimbal lock.
+    private static Vector3 QuatToEulerDeg(Quaternion q)
+    {
+        float sinrCosp = 2f * (q.W * q.X + q.Y * q.Z);
+        float cosrCosp = 1f - 2f * (q.X * q.X + q.Y * q.Y);
+        float roll = MathF.Atan2(sinrCosp, cosrCosp);
+
+        float sinp = 2f * (q.W * q.Y - q.Z * q.X);
+        float pitch = MathF.Abs(sinp) >= 1f ? MathF.CopySign(MathF.PI / 2f, sinp) : MathF.Asin(sinp);
+
+        float sinyCosp = 2f * (q.W * q.Z + q.X * q.Y);
+        float cosyCosp = 1f - 2f * (q.Y * q.Y + q.Z * q.Z);
+        float yaw = MathF.Atan2(sinyCosp, cosyCosp);
+
+        return new Vector3(pitch, yaw, roll) * (180f / MathF.PI);
+    }
+
+    private static Quaternion EulerDegToQuat(Vector3 eulerDeg)
+    {
+        var r = eulerDeg * (MathF.PI / 180f);
+        return Quaternion.CreateFromYawPitchRoll(r.Y, r.X, r.Z);
     }
 }

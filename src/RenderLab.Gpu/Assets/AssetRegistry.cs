@@ -248,7 +248,7 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
                 ? materialIds[d.MaterialIndex]
                 : MaterialId.None;
             drawables.Add(new ImportedDrawable(
-                d.Name, meshIds[d.MeshIndex], matId, d.Position, d.Scale));
+                d.Name, meshIds[d.MeshIndex], matId, d.Position, d.Rotation, d.Scale));
         }
 
         return FResult.Ok<GltfImportResult, AssetError>(new GltfImportResult(
