@@ -73,6 +73,19 @@ public sealed class MaterialDescriptors : IDisposable
         return set;
     }
 
+    /// <summary>
+    /// Drop the cached descriptor set for <paramref name="id"/> so that a
+    /// subsequent <see cref="GetOrAllocate"/> rebinds against a fresh image
+    /// view. Call this after the registry removes a texture; the underlying
+    /// descriptor set stays in the pool (Vulkan allows orphaned sets) and is
+    /// reclaimed when the pool itself is destroyed.
+    /// </summary>
+    public void InvalidateTexture(TextureId id)
+    {
+        var key = id.IsNone ? 0 : id.Value;
+        _cache.Remove(key);
+    }
+
     public unsafe void Dispose()
     {
         _gpu.Vk.DestroyDescriptorPool(_gpu.Device, _pool, null);

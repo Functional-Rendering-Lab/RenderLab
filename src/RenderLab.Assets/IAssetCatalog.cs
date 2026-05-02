@@ -19,4 +19,11 @@ public interface IAssetCatalog
     MaterialAsset GetMaterial(MaterialId id);
     bool TryGetMaterial(MaterialId id, out MaterialAsset asset);
     IEnumerable<MaterialAsset> AllMaterials { get; }
+
+    /// <summary>True if this id refers to a built-in fallback that the
+    /// registry refuses to remove. Used by editor UI to disable remove
+    /// affordances on protected assets.</summary>
+    bool IsBuiltin(MeshId id);
+    bool IsBuiltin(TextureId id);
+    bool IsBuiltin(MaterialId id);
 }

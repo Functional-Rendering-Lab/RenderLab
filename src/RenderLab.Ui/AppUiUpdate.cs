@@ -15,6 +15,9 @@ public static class AppUiUpdate
         // Both glTF import paths are registry side-effects; the shell handles them.
         AppUiMsg.RequestImportGltf       => model,
         AppUiMsg.RequestImportGltfDialog => model,
+        AppUiMsg.RequestRemoveMesh       => model,
+        AppUiMsg.RequestRemoveTexture    => model,
+        AppUiMsg.RequestRemoveMaterial   => model,
         _                            => model,
     };
 

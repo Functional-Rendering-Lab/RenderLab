@@ -123,6 +123,10 @@ public sealed class DeferredDemo : IDemo
             float deltaTime = (float)(currentTime - lastFrameTime);
             lastFrameTime = currentTime;
 
+            // Tick the asset registry so any pending GPU destroys whose safety
+            // window has elapsed get released before the new frame records.
+            assets.Tick();
+
             // Poll input — forward to the camera only if the previous frame's UI
             // didn't capture the mouse. ImGui's IO is populated below so this
             // frame's widgets see the same snapshot.
@@ -555,6 +559,9 @@ public sealed class DeferredDemo : IDemo
                 if (picked is not null)
                     extraMessages.AddRange(HandleImport(picked));
             }
+            else if (amsg is AppUiMsg.RequestRemoveMesh rm)        HandleRemoveMesh(rm.Id);
+            else if (amsg is AppUiMsg.RequestRemoveTexture rt)     HandleRemoveTexture(rt.Id);
+            else if (amsg is AppUiMsg.RequestRemoveMaterial rmat)  HandleRemoveMaterial(rmat.Id);
         }
 
         ui = UiUpdate.ApplyAll(ui, viewResult.Messages);
@@ -783,6 +790,61 @@ public sealed class DeferredDemo : IDemo
                 Console.WriteLine($"  glTF import failed for {resolved}: {e.Message}");
                 return Array.Empty<UiMsg>();
             });
+    }
+
+    // ─── Asset removal ───────────────────────────────────────────────
+    // The shell owns the reference-safety check because the registry can't
+    // see drawables. We refuse + log rather than cascade so a stale reference
+    // never silently snaps to a fallback.
+
+    void HandleRemoveMesh(MeshId id)
+    {
+        int refs = ui.Drawables.Count(d => d.Mesh == id);
+        if (refs > 0)
+        {
+            Console.WriteLine($"  remove mesh #{id.Value}: refused, {refs} drawable(s) still reference it");
+            return;
+        }
+        try { assets.RemoveMesh(id); }
+        catch (Exception ex) { Console.WriteLine($"  remove mesh #{id.Value} failed: {ex.Message}"); }
+    }
+
+    void HandleRemoveTexture(TextureId id)
+    {
+        if (id == assets.BuiltinWhiteTexture)
+        {
+            Console.WriteLine("  remove texture: built-in white fallback is protected");
+            return;
+        }
+        int refs = assets.AllMaterials.OfType<BlinnPhongMaterial>().Count(m => m.AlbedoMap == id);
+        if (refs > 0)
+        {
+            Console.WriteLine($"  remove texture #{id.Value}: refused, {refs} material(s) still reference it");
+            return;
+        }
+        try
+        {
+            assets.RemoveTexture(id);
+            materials.InvalidateTexture(id);
+        }
+        catch (Exception ex) { Console.WriteLine($"  remove texture #{id.Value} failed: {ex.Message}"); }
+    }
+
+    void HandleRemoveMaterial(MaterialId id)
+    {
+        if (id == assets.BuiltinDefaultMaterial)
+        {
+            Console.WriteLine("  remove material: built-in default is protected");
+            return;
+        }
+        int refs = ui.Drawables.Count(d => d.Material == id);
+        if (refs > 0)
+        {
+            Console.WriteLine($"  remove material #{id.Value}: refused, {refs} drawable(s) still reference it");
+            return;
+        }
+        try { assets.RemoveMaterial(id); }
+        catch (Exception ex) { Console.WriteLine($"  remove material #{id.Value} failed: {ex.Message}"); }
     }
 
     // ─── Procedural assets ───────────────────────────────────────────

@@ -8,16 +8,17 @@ namespace RenderLab.Ui.ImGui;
 using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
-/// Read-only inventory of every registered asset, grouped by kind, with the
-/// number of drawables (or other materials, for textures) that reference each
-/// id. Remove buttons land in Step I.
+/// Inventory of every registered asset, grouped by kind, with reference counts
+/// and per-row remove buttons. Buttons are disabled when the asset is built-in
+/// or still referenced; the shell does the actual removal via a registry call
+/// so this panel stays pure-message.
 /// </summary>
 public static class AssetBrowserPanel
 {
-    public static void Draw(UiModel model, IAssetCatalog catalog, Action<UiMsg> dispatch)
+    public static void Draw(UiModel model, IAssetCatalog catalog, Action<AppUiMsg> dispatchApp)
     {
         ImGui.SetNextWindowPos(new Vector2(10, 440), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(360, 360), ImGuiCond.FirstUseEver);
+        ImGui.SetNextWindowSize(new Vector2(380, 380), ImGuiCond.FirstUseEver);
 
         if (!ImGui.Begin("Asset Browser"))
         {
@@ -25,14 +26,14 @@ public static class AssetBrowserPanel
             return;
         }
 
-        DrawMeshes(model, catalog);
-        DrawMaterials(model, catalog);
-        DrawTextures(catalog);
+        DrawMeshes(model, catalog, dispatchApp);
+        DrawMaterials(model, catalog, dispatchApp);
+        DrawTextures(catalog, dispatchApp);
 
         ImGui.End();
     }
 
-    private static void DrawMeshes(UiModel model, IAssetCatalog catalog)
+    private static void DrawMeshes(UiModel model, IAssetCatalog catalog, Action<AppUiMsg> dispatchApp)
     {
         var meshes = catalog.AllMeshes.ToArray();
         if (!ImGui.TreeNodeEx($"Meshes ({meshes.Length})", ImGuiTreeNodeFlags.DefaultOpen))
@@ -41,12 +42,16 @@ public static class AssetBrowserPanel
         foreach (var m in meshes)
         {
             int refs = model.Drawables.Count(d => d.Mesh == m.Id);
-            ImGui.BulletText($"#{m.Id.Value}  {m.Name}  ({m.Data.Vertices.Length}v / {m.Data.Indices.Length / 3}t)  refs={refs}");
+            ImGui.Text($"#{m.Id.Value}  {m.Name}  ({m.Data.Vertices.Length}v / {m.Data.Indices.Length / 3}t)  refs={refs}");
+            ImGui.SameLine();
+            RemoveButton($"##rm-mesh-{m.Id.Value}",
+                disabledReason: catalog.IsBuiltin(m.Id) ? "built-in" : refs > 0 ? $"in use by {refs} drawable(s)" : null,
+                onClick: () => dispatchApp(new AppUiMsg.RequestRemoveMesh(m.Id)));
         }
         ImGui.TreePop();
     }
 
-    private static void DrawMaterials(UiModel model, IAssetCatalog catalog)
+    private static void DrawMaterials(UiModel model, IAssetCatalog catalog, Action<AppUiMsg> dispatchApp)
     {
         var mats = catalog.AllMaterials.ToArray();
         if (!ImGui.TreeNodeEx($"Materials ({mats.Length})", ImGuiTreeNodeFlags.DefaultOpen))
@@ -60,12 +65,16 @@ public static class AssetBrowserPanel
                 BlinnPhongMaterial bp => bp.AlbedoMap.IsNone ? "BlinnPhong" : $"BlinnPhong+tex#{bp.AlbedoMap.Value}",
                 _ => m.GetType().Name,
             };
-            ImGui.BulletText($"#{m.Id.Value}  {m.Name}  [{kind}]  refs={refs}");
+            ImGui.Text($"#{m.Id.Value}  {m.Name}  [{kind}]  refs={refs}");
+            ImGui.SameLine();
+            RemoveButton($"##rm-mat-{m.Id.Value}",
+                disabledReason: catalog.IsBuiltin(m.Id) ? "built-in" : refs > 0 ? $"in use by {refs} drawable(s)" : null,
+                onClick: () => dispatchApp(new AppUiMsg.RequestRemoveMaterial(m.Id)));
         }
         ImGui.TreePop();
     }
 
-    private static void DrawTextures(IAssetCatalog catalog)
+    private static void DrawTextures(IAssetCatalog catalog, Action<AppUiMsg> dispatchApp)
     {
         var texs = catalog.AllTextures.ToArray();
         if (!ImGui.TreeNodeEx($"Textures ({texs.Length})", ImGuiTreeNodeFlags.DefaultOpen))
@@ -82,8 +91,22 @@ public static class AssetBrowserPanel
         foreach (var t in texs)
         {
             int refs = refsByTex.GetValueOrDefault(t.Id.Value);
-            ImGui.BulletText($"#{t.Id.Value}  {t.Name}  ({t.Width}×{t.Height} {t.Format})  refs={refs}");
+            ImGui.Text($"#{t.Id.Value}  {t.Name}  ({t.Width}×{t.Height} {t.Format})  refs={refs}");
+            ImGui.SameLine();
+            RemoveButton($"##rm-tex-{t.Id.Value}",
+                disabledReason: catalog.IsBuiltin(t.Id) ? "built-in" : refs > 0 ? $"in use by {refs} material(s)" : null,
+                onClick: () => dispatchApp(new AppUiMsg.RequestRemoveTexture(t.Id)));
         }
         ImGui.TreePop();
+    }
+
+    private static void RemoveButton(string id, string? disabledReason, Action onClick)
+    {
+        var disabled = disabledReason is not null;
+        if (disabled) ImGui.BeginDisabled();
+        if (ImGui.SmallButton("remove" + id)) onClick();
+        if (disabled) ImGui.EndDisabled();
+        if (disabled && ImGui.IsItemHovered(ImGuiHoveredFlags.AllowWhenDisabled))
+            ImGui.SetTooltip(disabledReason);
     }
 }

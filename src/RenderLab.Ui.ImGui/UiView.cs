@@ -36,7 +36,7 @@ public static class UiView
         if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Lights, model.Ambient, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
         if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
         if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(model, scene, catalog, dispatch);
-        if (app.IsPanelVisible(PanelId.AssetBrowser))  AssetBrowserPanel.Draw(model, catalog, dispatch);
+        if (app.IsPanelVisible(PanelId.AssetBrowser))  AssetBrowserPanel.Draw(model, catalog, dispatchApp);
 
         var io = ImGui.GetIO();
         var intent = new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard);

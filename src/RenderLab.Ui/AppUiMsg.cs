@@ -19,4 +19,10 @@ public abstract record AppUiMsg
     /// reducer passes through; the shell owns the dialog because the picker
     /// is platform-specific.</summary>
     public sealed record RequestImportGltfDialog : AppUiMsg;
+    /// <summary>Remove a registered asset. Reducer passes through; the shell
+    /// validates reference safety, calls the registry, and invalidates any
+    /// caches keyed on the id.</summary>
+    public sealed record RequestRemoveMesh(RenderLab.Assets.MeshId Id) : AppUiMsg;
+    public sealed record RequestRemoveTexture(RenderLab.Assets.TextureId Id) : AppUiMsg;
+    public sealed record RequestRemoveMaterial(RenderLab.Assets.MaterialId Id) : AppUiMsg;
 }

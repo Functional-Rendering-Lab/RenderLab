@@ -31,8 +31,21 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
     private TextureId _whiteFallbackId;
     private MaterialId _defaultMaterialId;
 
+    // Monotonic frame counter ticked by the demo each frame. Pending GPU
+    // destroys carry the smallest frame at which they're safe to release —
+    // currentFrame + MaxFramesInFlight + 1 covers the worst case where the
+    // resource was bound by the in-flight frame just before remove.
+    private ulong _frame;
+    private readonly List<PendingDestroy> _pendingDestroy = new();
+
+    /// <summary>The built-in 1×1 white fallback texture. Cannot be removed.</summary>
+    public TextureId BuiltinWhiteTexture => _whiteFallbackId;
+    /// <summary>The built-in default Blinn-Phong material. Cannot be removed.</summary>
+    public MaterialId BuiltinDefaultMaterial => _defaultMaterialId;
+
     private readonly record struct MeshGpu(VkBuffer VertexBuffer, Allocation VertexAlloc, VkBuffer IndexBuffer, Allocation IndexAlloc, uint IndexCount);
     private readonly record struct TextureGpu(Image Image, Allocation Alloc, ImageView View);
+    private readonly record struct PendingDestroy(ulong SafeFrame, Action Destroy);
 
     public AssetRegistry(GpuState gpu)
     {
@@ -99,6 +112,25 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         return new GpuMeshHandles(gpu.VertexBuffer, gpu.IndexBuffer, gpu.IndexCount);
     }
 
+    /// <summary>
+    /// Removes a mesh from the catalog and queues its GPU buffers for deferred
+    /// destruction. Reference safety is the caller's job — the registry doesn't
+    /// see drawables, so it can't refuse on its own.
+    /// </summary>
+    public void RemoveMesh(MeshId id)
+    {
+        if (!_meshes.ContainsKey(id.Value))
+            throw new KeyNotFoundException($"Unknown MeshId({id.Value})");
+        var gpu = _meshGpu[id.Value];
+        _meshes.Remove(id.Value);
+        _meshGpu.Remove(id.Value);
+        QueueDestroy(() =>
+        {
+            VulkanBuffer.Destroy(_gpu, gpu.VertexBuffer, gpu.VertexAlloc);
+            VulkanBuffer.Destroy(_gpu, gpu.IndexBuffer, gpu.IndexAlloc);
+        });
+    }
+
     // ─── Texture ───────────────────────────────────────────────────────
 
     public FTextureId RegisterTexture(string name, int width, int height, TextureFormat format, ReadOnlySpan<byte> pixels)
@@ -144,6 +176,28 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         return new GpuTextureHandles(gpu.View, _sharedSampler);
     }
 
+    /// <summary>
+    /// Removes a texture from the catalog and queues its image / view for
+    /// deferred destruction. Refuses to remove the built-in white fallback.
+    /// Caller is responsible for invalidating any descriptor caches keyed on
+    /// the texture id (see <c>MaterialDescriptors.InvalidateTexture</c>).
+    /// </summary>
+    public void RemoveTexture(TextureId id)
+    {
+        if (id == _whiteFallbackId)
+            throw new InvalidOperationException("Cannot remove the built-in white fallback texture.");
+        if (!_textures.ContainsKey(id.Value))
+            throw new KeyNotFoundException($"Unknown TextureId({id.Value})");
+        var gpu = _textureGpu[id.Value];
+        _textures.Remove(id.Value);
+        _textureGpu.Remove(id.Value);
+        QueueDestroy(() =>
+        {
+            unsafe { _gpu.Vk.DestroyImageView(_gpu.Device, gpu.View, null); }
+            _gpu.Allocator.DestroyImage(_gpu, gpu.Image, gpu.Alloc);
+        });
+    }
+
     // ─── Material ──────────────────────────────────────────────────────
 
     public FMaterialId RegisterMaterial(string name, Func<MaterialId, MaterialAsset> build)
@@ -179,6 +233,53 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         _materials.TryGetValue(id.IsNone ? _defaultMaterialId.Value : id.Value, out asset!);
 
     public IEnumerable<MaterialAsset> AllMaterials => _materials.Values;
+
+    // No mesh built-ins today; the predicate is here for symmetry and so the
+    // editor UI doesn't need a special-case for "kinds with no built-ins".
+    public bool IsBuiltin(MeshId id) => false;
+    public bool IsBuiltin(TextureId id) => id == _whiteFallbackId;
+    public bool IsBuiltin(MaterialId id) => id == _defaultMaterialId;
+
+    /// <summary>
+    /// Removes a material from the catalog. CPU-only, no GPU lifetime to manage.
+    /// Refuses to remove the built-in default. Reference safety is the caller's job.
+    /// </summary>
+    public void RemoveMaterial(MaterialId id)
+    {
+        if (id == _defaultMaterialId)
+            throw new InvalidOperationException("Cannot remove the built-in default material.");
+        if (!_materials.ContainsKey(id.Value))
+            throw new KeyNotFoundException($"Unknown MaterialId({id.Value})");
+        _materials.Remove(id.Value);
+    }
+
+    // ─── Deferred destroy ──────────────────────────────────────────────
+
+    /// <summary>
+    /// Called once per frame by the demo. Increments the internal frame counter
+    /// and releases any GPU resources whose safety frame has been reached. Safe
+    /// to call before recording the new frame's commands.
+    /// </summary>
+    public void Tick()
+    {
+        _frame++;
+        for (int i = _pendingDestroy.Count - 1; i >= 0; i--)
+        {
+            if (_pendingDestroy[i].SafeFrame <= _frame)
+            {
+                _pendingDestroy[i].Destroy();
+                _pendingDestroy.RemoveAt(i);
+            }
+        }
+    }
+
+    private void QueueDestroy(Action destroy)
+    {
+        // +1 of safety margin past MaxFramesInFlight; the worst-case caller
+        // queues mid-frame after the previous frame's command buffer has been
+        // submitted but not yet retired.
+        _pendingDestroy.Add(new PendingDestroy(_frame + (ulong)GpuState.MaxFramesInFlight + 1, destroy));
+    }
 
     // ─── glTF import ───────────────────────────────────────────────────
 
@@ -446,6 +547,11 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
 
     public unsafe void Dispose()
     {
+        // Drain any pending destroys before tearing down the live resources.
+        // GPU is expected to be idle by now (the demo's DeviceWaitIdle).
+        foreach (var p in _pendingDestroy) p.Destroy();
+        _pendingDestroy.Clear();
+
         foreach (var gpu in _meshGpu.Values)
         {
             VulkanBuffer.Destroy(_gpu, gpu.VertexBuffer, gpu.VertexAlloc);
