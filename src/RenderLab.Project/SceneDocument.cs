@@ -17,7 +17,9 @@ public sealed record SceneDocument(
     SceneAssetsDoc Assets,
     DrawableDoc[] Drawables);
 
-public sealed record CameraDoc(float[] Position, float[] Target, float FovDeg);
+/// <summary>Camera state matches <c>FreeCameraState</c>: yaw/pitch in degrees,
+/// position in world space, vertical FOV in degrees.</summary>
+public sealed record CameraDoc(float[] Position, float YawDeg, float PitchDeg, float FovDeg);
 
 public sealed record AmbientDoc(float[] Sky, float[] Ground);
 

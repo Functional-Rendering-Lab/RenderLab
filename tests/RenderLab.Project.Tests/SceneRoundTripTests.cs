@@ -7,7 +7,7 @@ public class SceneRoundTripTests
 {
     private static SceneDocument SampleScene() => new(
         Version: 1,
-        Camera: new CameraDoc([0, 1, 5], [0, 0, 0], 60f),
+        Camera: new CameraDoc([0, 1, 5], 0f, 0f, 60f),
         Ambient: new AmbientDoc([0.5f, 0.6f, 0.8f], [0.2f, 0.2f, 0.2f]),
         Lights:
         [
