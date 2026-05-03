@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
+    <ProjectReference Include="..\RenderLab.Gpu\RenderLab.Gpu.csproj" />
+    <ProjectReference Include="..\RenderLab.Graph\RenderLab.Graph.csproj" />
+    <ProjectReference Include="..\RenderLab.Scene\RenderLab.Scene.csproj" />
+    <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
+    <ProjectReference Include="..\RenderLab.Project\RenderLab.Project.csproj" />
+    <ProjectReference Include="..\RenderLab.Papers\RenderLab.Papers.csproj" />
+    <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+  </PropertyGroup>
+
+</Project>
