@@ -202,7 +202,8 @@ src/
                                TonemapPass, DebugVizPass
   RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
   RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
-  RenderLab.Project/           Pure project + scene document model + JSON IO
+  RenderLab.Project/           Pure project + scene document model + JSON IO;
+                               project asset index + scanner (Project panel)
   RenderLab.Pipelines/         IPipeline + Triangle/GBuffer/Deferred + SceneLoader + SceneBuilder
   RenderLab.Shaders/           GLSL sources + SPIR-V build script
   RenderLab.App/               Application composition root + Program.cs (project-path argv)

@@ -52,6 +52,7 @@ public sealed class Application : IDisposable
     string projectRoot = "";
     string activeScenePath = "";
     SceneAssetSources sources = SceneAssetSources.Empty;
+    ProjectAssetIndex projectIndex = ProjectAssetIndex.Empty("");
 
     AppUiModel app = AppUiModel.Default;
     UiModel ui = UiModel.Default;
@@ -155,6 +156,8 @@ public sealed class Application : IDisposable
             app = app with { VisiblePanels = visible };
         }
 
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
+
         if (pipeline.ConsumesScenes)
         {
             if (string.IsNullOrEmpty(manifest.DefaultScene))
@@ -199,6 +202,7 @@ public sealed class Application : IDisposable
         sources = ls.Sources;
         activeScenePath = projectRelative;
         app = app.WithActiveScene(projectRelative);
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
         return Result.Ok<Unit, string>(Unit.Value);
     }
 
@@ -298,7 +302,7 @@ public sealed class Application : IDisposable
             if (pipeline.ConsumesScenes)
             {
                 var stats = pipeline.GetFrameStats(dt);
-                var view = UiView.Draw(app, ui, scene!, assets, stats);
+                var view = UiView.Draw(app, ui, scene!, assets, stats, projectIndex);
                 ApplyViewMessages(view, prevUi);
                 pipeline.DrawDebugUi();
                 // ApplyViewMessages may have reloaded the scene (registry
@@ -402,6 +406,12 @@ public sealed class Application : IDisposable
             case AppUiMsg.RequestNewProjectDialog:
                 HandleNewProjectDialog();
                 break;
+            case AppUiMsg.RequestRescanProject:
+                projectIndex = ProjectAssetScanner.Scan(projectRoot);
+                break;
+            case AppUiMsg.RequestRevealInExplorer rv:
+                PlatformDialogs.RevealInExplorer(rv.AbsolutePath);
+                break;
         }
     }
 
@@ -420,6 +430,7 @@ public sealed class Application : IDisposable
                 RecordImportSources(resolved, r);
                 if (r.Meshes.Length > 0 || r.Textures.Length > 0 || r.Materials.Length > 0)
                     app = app with { SceneDirty = true };
+                projectIndex = ProjectAssetScanner.Scan(projectRoot);
                 return r.Drawables.Select(d => new UiMsg.AddDrawable(
                     d.Name, d.Mesh,
                     new Transform(d.Position, d.Rotation, d.Scale),

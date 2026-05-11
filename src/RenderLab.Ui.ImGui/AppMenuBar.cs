@@ -68,6 +68,7 @@ public static class AppMenuBar
             ViewToggle("Render Graph",  PanelId.RenderGraph,   app, dispatch);
             ViewToggle("Scene",         PanelId.Scene,         app, dispatch);
             ViewToggle("Asset Browser", PanelId.AssetBrowser,  app, dispatch);
+            ViewToggle("Project",       PanelId.Project,       app, dispatch);
             ImGui.EndMenu();
         }
 

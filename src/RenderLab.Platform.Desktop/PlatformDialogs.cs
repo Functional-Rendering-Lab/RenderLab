@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using NativeFileDialogSharp;
 
 namespace RenderLab.Platform.Desktop;
@@ -47,5 +48,25 @@ public static class PlatformDialogs
         if (!path.EndsWith(".scene.json", StringComparison.OrdinalIgnoreCase))
             path += ".scene.json";
         return path;
+    }
+
+    /// <summary>
+    /// Opens the OS file manager with <paramref name="absolutePath"/> selected
+    /// (Windows / macOS) or the parent folder opened (Linux best-effort). Silent
+    /// on failure — this is a non-fatal UX affordance.
+    /// </summary>
+    public static void RevealInExplorer(string absolutePath)
+    {
+        if (string.IsNullOrEmpty(absolutePath)) return;
+        try
+        {
+            if (OperatingSystem.IsWindows())
+                Process.Start("explorer.exe", $"/select,\"{absolutePath}\"");
+            else if (OperatingSystem.IsMacOS())
+                Process.Start("open", new[] { "-R", absolutePath });
+            else
+                Process.Start("xdg-open", Path.GetDirectoryName(absolutePath) ?? "");
+        }
+        catch { /* swallow */ }
     }
 }

@@ -13,4 +13,5 @@ public enum PanelId
     RenderGraph,
     Scene,
     AssetBrowser,
+    Project,
 }

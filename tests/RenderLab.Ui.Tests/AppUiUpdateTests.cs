@@ -33,6 +33,22 @@ public class AppUiUpdateTests
     }
 
     [Fact]
+    public void RequestRescanProject_isPassthrough()
+    {
+        var start = Fresh();
+        var next = AppUiUpdate.Apply(start, new AppUiMsg.RequestRescanProject());
+        Assert.Equal(start, next);
+    }
+
+    [Fact]
+    public void RequestRevealInExplorer_isPassthrough()
+    {
+        var start = Fresh();
+        var next = AppUiUpdate.Apply(start, new AppUiMsg.RequestRevealInExplorer("C:/foo/bar.glb"));
+        Assert.Equal(start, next);
+    }
+
+    [Fact]
     public void ApplyAll_foldsSequence()
     {
         var msgs = new AppUiMsg[]

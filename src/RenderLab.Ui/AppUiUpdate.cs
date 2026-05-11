@@ -25,6 +25,8 @@ public static class AppUiUpdate
         AppUiMsg.RequestOpenScene        => model,
         AppUiMsg.RequestReloadScene      => model,
         AppUiMsg.RequestNewProjectDialog => model,
+        AppUiMsg.RequestRescanProject    => model,
+        AppUiMsg.RequestRevealInExplorer => model,
         _                                => model,
     };
 

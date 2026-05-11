@@ -5,6 +5,7 @@
     <ProjectReference Include="..\RenderLab.Graph\RenderLab.Graph.csproj" />
     <ProjectReference Include="..\RenderLab.Scene\RenderLab.Scene.csproj" />
     <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
+    <ProjectReference Include="..\RenderLab.Project\RenderLab.Project.csproj" />
   </ItemGroup>
 
   <ItemGroup>

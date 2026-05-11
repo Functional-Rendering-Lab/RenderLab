@@ -42,4 +42,13 @@ public abstract record AppUiMsg
     /// <summary>Ask the shell for a folder + pipeline id and create a new
     /// project on disk (with an empty default scene), then open it.</summary>
     public sealed record RequestNewProjectDialog : AppUiMsg;
+
+    // ─── Project panel ─────────────────────────────────────────────────
+
+    /// <summary>Toolbar-initiated rescan of the active project's on-disk tree.
+    /// The reducer passes through; the shell rebuilds its <c>ProjectAssetIndex</c>.</summary>
+    public sealed record RequestRescanProject : AppUiMsg;
+    /// <summary>Open the OS file manager with the given absolute path selected
+    /// (or its parent folder on Linux). View-only affordance; reducer is a no-op.</summary>
+    public sealed record RequestRevealInExplorer(string AbsolutePath) : AppUiMsg;
 }

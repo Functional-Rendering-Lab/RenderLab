@@ -45,7 +45,8 @@
       "Bash(rm -rf \"D:/FunctionalRenderingLab/code/src/RenderLab.Platform.Android\")",
       "Bash(rm \"D:/FunctionalRenderingLab/code/docs/ARCHITECTURE-ANDROID.md\")",
       "mcp__serena__initial_instructions",
-      "Bash(python src/RenderLab.Shaders/compile_shaders.py)"
+      "Bash(python src/RenderLab.Shaders/compile_shaders.py)",
+      "Bash(xargs basename -a)"
     ]
   }
 }
