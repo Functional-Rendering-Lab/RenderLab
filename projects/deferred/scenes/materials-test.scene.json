@@ -1,0 +1,37 @@
+{
+  "version": 1,
+  "camera": {
+    "position": [1.5, 1.0, 2.0],
+    "yawDeg": 35.0,
+    "pitchDeg": -20.0,
+    "fovDeg": 45.0
+  },
+  "ambient": {
+    "sky":    [0.4, 0.5, 0.7],
+    "ground": [0.18, 0.16, 0.14]
+  },
+  "lights": [
+    { "kind": "point",       "position": [2.0, 3.0, 2.0],   "color": [1.0, 0.95, 0.9], "intensity": 5.0 },
+    { "kind": "directional", "direction": [-0.4, -1.0, -0.3], "color": [1.0, 0.95, 0.85], "intensity": 1.0 }
+  ],
+  "renderConfig": {
+    "shading": "blinnPhong",
+    "lightingOnly": false,
+    "viz": "final",
+    "clearColor": [0.0, 0.0, 0.0]
+  },
+  "assets": {
+    "meshes": [
+      { "name": "Box", "source": { "kind": "file", "path": "assets/box-textured.glb" } }
+    ],
+    "textures": [
+      { "name": "BoxAlbedo", "source": { "kind": "file", "path": "assets/box-textured.glb" } }
+    ],
+    "materials": [
+      { "kind": "blinnPhong", "name": "Box", "albedo": [1.0, 1.0, 1.0], "specularStrength": 0.5, "shininess": 32.0, "albedoMap": 0 }
+    ]
+  },
+  "drawables": [
+    { "name": "Box", "mesh": 0, "material": 0, "transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": 1.0 } }
+  ]
+}

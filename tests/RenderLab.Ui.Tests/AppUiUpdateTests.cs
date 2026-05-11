@@ -4,15 +4,7 @@ namespace RenderLab.Ui.Tests;
 
 public class AppUiUpdateTests
 {
-    private static AppUiModel Fresh() => AppUiModel.Default(DemoId.Deferred);
-
-    [Fact]
-    public void RequestSwitchDemo_setsRequestedDemo()
-    {
-        var next = AppUiUpdate.Apply(Fresh(), new AppUiMsg.RequestSwitchDemo(DemoId.Triangle));
-        Assert.Equal(DemoId.Triangle, next.RequestedDemo);
-        Assert.Equal(DemoId.Deferred, next.CurrentDemo);
-    }
+    private static AppUiModel Fresh() => AppUiModel.Default;
 
     [Fact]
     public void RequestExit_setsFlag()
@@ -41,29 +33,17 @@ public class AppUiUpdateTests
     }
 
     [Fact]
-    public void HandOffTo_preservesPanelVisibilityAndClearsRequest()
-    {
-        var m = Fresh()
-            .WithPanelVisible(PanelId.GpuTimings, false)
-            with { RequestedDemo = DemoId.GBuffer };
-        var next = m.HandOffTo(DemoId.GBuffer);
-        Assert.Equal(DemoId.GBuffer, next.CurrentDemo);
-        Assert.Null(next.RequestedDemo);
-        Assert.False(next.IsPanelVisible(PanelId.GpuTimings));
-    }
-
-    [Fact]
     public void ApplyAll_foldsSequence()
     {
         var msgs = new AppUiMsg[]
         {
             new AppUiMsg.TogglePanel(PanelId.Camera),
             new AppUiMsg.TogglePanel(PanelId.Lighting),
-            new AppUiMsg.RequestSwitchDemo(DemoId.GBuffer),
+            new AppUiMsg.RequestExit(),
         };
         var final = AppUiUpdate.ApplyAll(Fresh(), msgs);
         Assert.False(final.IsPanelVisible(PanelId.Camera));
         Assert.False(final.IsPanelVisible(PanelId.Lighting));
-        Assert.Equal(DemoId.GBuffer, final.RequestedDemo);
+        Assert.True(final.RequestedExit);
     }
 }

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
     <ProjectReference Include="..\RenderLab.Gpu\RenderLab.Gpu.csproj" />
@@ -7,6 +7,8 @@
     <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
     <ProjectReference Include="..\RenderLab.Scene\RenderLab.Scene.csproj" />
     <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
+    <ProjectReference Include="..\RenderLab.Project\RenderLab.Project.csproj" />
+    <ProjectReference Include="..\RenderLab.Pipelines\RenderLab.Pipelines.csproj" />
     <ProjectReference Include="..\RenderLab.Ui.ImGui\RenderLab.Ui.ImGui.csproj" />
     <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
     <ProjectReference Include="..\RenderLab.Papers\RenderLab.Papers.csproj" />
@@ -16,8 +18,12 @@
     <Content Include="..\RenderLab.Shaders\**\*.spv" CopyToOutputDirectory="PreserveNewest" Link="shaders\%(Filename)%(Extension)" />
   </ItemGroup>
 
+  <!-- Per-project content: stage starter projects under bin/.../projects/{name}/
+       so the loader can resolve them by relative path from the working dir. -->
   <ItemGroup>
-    <Content Include="..\..\assets\**\*" CopyToOutputDirectory="PreserveNewest" Link="assets\%(RecursiveDir)%(Filename)%(Extension)" />
+    <Content Include="..\..\projects\**\*"
+             CopyToOutputDirectory="PreserveNewest"
+             Link="projects\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <PropertyGroup>

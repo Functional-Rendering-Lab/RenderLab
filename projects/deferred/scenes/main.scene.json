@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "camera": {
+    "position": [2.1, 1.85, 2.1],
+    "yawDeg": 45.0,
+    "pitchDeg": -31.5126,
+    "fovDeg": 45.0
+  },
+  "ambient": {
+    "sky":    [0.4, 0.5, 0.7],
+    "ground": [0.18, 0.16, 0.14]
+  },
+  "lights": [
+    { "kind": "point",       "position": [2.0, 3.0, 2.0],   "color": [1.0,  0.95, 0.9],  "intensity": 5.0 },
+    { "kind": "point",       "position": [-2.5, 0.5, 1.5],  "color": [0.2,  0.5,  1.0],  "intensity": 1.5 },
+    { "kind": "point",       "position": [2.5, 0.5, 1.5],   "color": [1.0,  0.4,  0.2],  "intensity": 1.5 },
+    { "kind": "directional", "direction": [-0.4, -1.0, -0.3], "color": [1.0, 0.95, 0.85], "intensity": 1.0 }
+  ],
+  "renderConfig": {
+    "shading": "blinnPhong",
+    "lightingOnly": false,
+    "viz": "final",
+    "clearColor": [0.0, 0.0, 0.0]
+  },
+  "assets": {
+    "meshes": [
+      { "name": "Sphere", "source": { "kind": "procedural", "generator": "sphere", "params": { "stacks": 32, "slices": 32 } } },
+      { "name": "Cube",   "source": { "kind": "procedural", "generator": "cube" } }
+    ],
+    "textures": [
+      { "name": "Checker", "source": { "kind": "procedural", "generator": "checker", "params": { "cells": 8, "size": 256, "format": "rgba8srgb" } } }
+    ],
+    "materials": [
+      { "kind": "blinnPhong", "name": "Sphere", "albedo": [0.6, 0.6, 0.6], "specularStrength": 0.5, "shininess": 32.0, "albedoMap": null },
+      { "kind": "blinnPhong", "name": "Cube",   "albedo": [0.6, 0.6, 0.6], "specularStrength": 0.5, "shininess": 32.0, "albedoMap": 0 }
+    ]
+  },
+  "drawables": [
+    { "name": "Sphere", "mesh": 0, "material": 0, "transform": { "position": [0.0, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": 1.0 } },
+    { "name": "Cube",   "mesh": 1, "material": 1, "transform": { "position": [2.5, 0.0, 0.0], "rotation": [0.0, 0.0, 0.0, 1.0], "scale": 1.0 } }
+  ]
+}

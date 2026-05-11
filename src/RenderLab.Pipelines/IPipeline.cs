@@ -1,5 +1,10 @@
+using System.Collections.Immutable;
 using Silk.NET.Vulkan;
 using RenderLab.Gpu;
+using RenderLab.Gpu.Assets;
+using RenderLab.Graph;
+using RenderLab.Scene;
+using RenderLab.Ui;
 
 namespace RenderLab.Pipelines;
 
@@ -8,9 +13,9 @@ using Scene = RenderLab.Scene.Scene;
 /// <summary>
 /// A rendering technique implementation — what was previously called a "demo."
 /// Owns its render passes, descriptor set layouts, framebuffers, and per-frame
-/// command recording. The <see cref="Application"/> hosts a single pipeline at
-/// a time, hands it the active scene each frame, and supplies the editor UI
-/// shell (window, ImGui, menu bar). Pipelines that don't consume scenes (e.g.
+/// command recording. The <c>Application</c> hosts a single pipeline at a time,
+/// hands it the active scene each frame, and supplies the editor UI shell
+/// (window, ImGui, menu bar). Pipelines that don't consume scenes (e.g.
 /// triangle) ignore the scene argument.
 /// </summary>
 public interface IPipeline : IDisposable
@@ -19,18 +24,18 @@ public interface IPipeline : IDisposable
     string Id { get; }
 
     /// <summary>True if the editor should expose the Scene + AssetBrowser
-    /// panels. False for pipelines that don't operate on a Scene snapshot.</summary>
+    /// panels and the pipeline reads <see cref="UiModel"/> in
+    /// <see cref="RecordFrame"/>.</summary>
     bool ConsumesScenes { get; }
 
     /// <summary>
     /// Build long-lived GPU resources (render passes, pipeline state, descriptor
-    /// layouts, ImGui-compatible overlay framebuffer plumbing). Called once at
-    /// engine startup after <see cref="GpuState"/> is ready.
+    /// layouts). Called once at engine startup after <see cref="GpuState"/> is
+    /// ready.
     /// </summary>
-    /// <param name="overlayRenderPass">The Application's pre-built overlay render
-    /// pass (LoadOp.Load over the swapchain) — pipelines that draw debug viz
-    /// before ImGui can use this.</param>
-    void Initialize(GpuState gpu, RenderPass overlayRenderPass);
+    /// <param name="overlayRenderPass">The Application's pre-built overlay
+    /// render pass (LoadOp.Load over the swapchain) for ImGui.</param>
+    void Initialize(GpuState gpu, AssetRegistry assets, RenderPass overlayRenderPass);
 
     /// <summary>
     /// Recreate transient resources sized to the swapchain (offscreen images,
@@ -40,10 +45,50 @@ public interface IPipeline : IDisposable
     void RecreateTransient(GpuState gpu);
 
     /// <summary>
-    /// Record one frame's draw commands into <paramref name="cb"/>. The
-    /// command buffer is already in the recording state. The Application
-    /// handles BeginFrame/EndFrame around this call. <paramref name="scene"/>
-    /// is null when <see cref="ConsumesScenes"/> is false.
+    /// Read previous-frame GPU timestamps before <c>BeginFrame</c>. No-op for
+    /// pipelines that don't time anything.
     /// </summary>
-    void RecordFrame(GpuState gpu, CommandBuffer cb, Scene? scene, double deltaSeconds, uint imageIndex);
+    void TickStats() { }
+
+    /// <summary>
+    /// Forward a per-frame camera input to pipelines that own their own
+    /// camera state. <c>ConsumesScenes</c> pipelines ignore this — the
+    /// Application updates <see cref="UiModel.Camera"/> directly. The
+    /// Application skips this call when the previous frame's UI captured the
+    /// mouse.
+    /// </summary>
+    void HandleInput(CameraInput input) { }
+
+    /// <summary>
+    /// Record one frame's draw commands into <paramref name="cb"/>. The command
+    /// buffer is in the recording state. The Application handles
+    /// BeginFrame/EndFrame and the ImGui overlay pass after this returns;
+    /// pipelines must leave the swapchain image in <c>PresentSrcKhr</c>.
+    /// </summary>
+    void RecordFrame(GpuState gpu, CommandBuffer cb, Scene? scene, UiModel? ui, double deltaSeconds, uint imageIndex);
+
+    /// <summary>
+    /// Draw any pipeline-specific ImGui windows (e.g. GBuffer's vizMode
+    /// combo). Called between <c>NewFrame</c> and the editor panels. The
+    /// editor's <c>UiView</c> already covers the deferred panels — this is
+    /// for pipelines that ride outside that pure shell.
+    /// </summary>
+    void DrawDebugUi() { }
+
+    /// <summary>
+    /// Per-frame snapshot of pipeline-internal stats (GPU timestamps, the
+    /// resolved render graph) for the editor's debug panels. Pipelines that
+    /// don't time anything return an empty value.
+    /// </summary>
+    FrameStats GetFrameStats(double deltaSeconds) =>
+        new((float)deltaSeconds, Array.Empty<string>(), Array.Empty<double>(), ImmutableArray<ResolvedPass>.Empty);
+
+    /// <summary>
+    /// Drop any caches keyed on registered asset ids ahead of a scene
+    /// swap. The Application calls this after <c>vkDeviceWaitIdle</c>
+    /// and before <see cref="AssetRegistry.ResetForSceneSwap"/>, so
+    /// pipelines must not touch the registry from here. Default no-op
+    /// for pipelines that don't cache by asset id.
+    /// </summary>
+    void ResetSceneState() { }
 }

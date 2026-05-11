@@ -1,0 +1,7 @@
+{
+  "version": 1,
+  "name": "Triangle",
+  "pipeline": "triangle",
+  "defaultScene": "",
+  "scenes": []
+}

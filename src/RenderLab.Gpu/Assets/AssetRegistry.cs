@@ -281,6 +281,28 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         _pendingDestroy.Add(new PendingDestroy(_frame + (ulong)GpuState.MaxFramesInFlight + 1, destroy));
     }
 
+    /// <summary>
+    /// Releases every non-builtin mesh, texture, and material so the
+    /// caller can repopulate the registry from a different scene. Caller
+    /// must have issued <c>vkDeviceWaitIdle</c> first — every queued
+    /// destroy runs immediately rather than waiting for
+    /// <see cref="Tick"/>. Built-in fallbacks (<see cref="BuiltinWhiteTexture"/>,
+    /// <see cref="BuiltinDefaultMaterial"/>) are preserved.
+    /// </summary>
+    public void ResetForSceneSwap()
+    {
+        foreach (var id in _meshes.Keys.ToList())
+            RemoveMesh(new MeshId(id));
+        foreach (var id in _textures.Keys.ToList())
+            if (!IsBuiltin(new TextureId(id))) RemoveTexture(new TextureId(id));
+        foreach (var id in _materials.Keys.ToList())
+            if (!IsBuiltin(new MaterialId(id))) RemoveMaterial(new MaterialId(id));
+
+        // GPU is idle by contract, so retiring deferred destroys now is safe.
+        foreach (var pending in _pendingDestroy) pending.Destroy();
+        _pendingDestroy.Clear();
+    }
+
     // ─── glTF import ───────────────────────────────────────────────────
 
     /// <summary>

@@ -15,16 +15,23 @@ namespace RenderLab.Pipelines;
 /// projecting its drawable seeds into a fresh <see cref="UiModel"/>. Index
 /// references inside the document are mapped to typed registry ids in
 /// dependency order: textures → materials (with rewritten albedo refs) →
-/// meshes → drawables.
+/// meshes → drawables. Also tracks the <see cref="AssetSourceDoc"/> each
+/// registered mesh / texture came from in a <see cref="SceneAssetSources"/>
+/// map, so the inverse <c>SceneDocumentBuilder.From</c> can round-trip the
+/// scene back to disk on save.
 /// </summary>
 public static class SceneLoader
 {
-    public static Result<UiModel, SceneLoadError> Load(
+    public sealed record LoadedScene(UiModel Ui, SceneAssetSources Sources);
+
+    public static Result<LoadedScene, SceneLoadError> Load(
         string projectRoot,
         SceneDocument doc,
         AssetRegistry assets,
         IProceduralAssetSource procedural)
     {
+        var sources = SceneAssetSources.Empty;
+
         // Textures
         var textureIds = new TextureId[doc.Assets.Textures.Length];
         var fileTextureCache = new Dictionary<string, TextureId>(StringComparer.OrdinalIgnoreCase);
@@ -38,20 +45,24 @@ public static class SceneLoader
                 {
                     var tex = procedural.TryCreateTexture(p.Generator, p.Params);
                     if (tex is null)
-                        return Result.Error<UiModel, SceneLoadError>(
+                        return Result.Error<LoadedScene, SceneLoadError>(
                             new SceneLoadError.UnknownProceduralGenerator("texture", p.Generator));
                     var r = assets.RegisterTexture(entry.Name, tex.Width, tex.Height, tex.Format, tex.Pixels);
                     if (r.IsError)
-                        return Result.Error<UiModel, SceneLoadError>(
+                        return Result.Error<LoadedScene, SceneLoadError>(
                             r.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.AssetUploadFailed(entry.Name, e.Message)));
-                    textureIds[i] = r.Match(ok: id => id, error: _ => default);
+                    var id = r.Match(ok: x => x, error: _ => default);
+                    textureIds[i] = id;
+                    sources = sources.WithTexture(id, entry.Source);
                     break;
                 }
                 case FileSourceDoc f:
                 {
                     var maybe = ResolveFileTexture(projectRoot, f.Path, assets, fileTextureCache, fileMeshCache);
-                    if (maybe.IsError) return Result.Error<UiModel, SceneLoadError>(maybe.Match<SceneLoadError>(_ => null!, e => e));
-                    textureIds[i] = maybe.Match(ok: id => id, error: _ => default);
+                    if (maybe.IsError) return Result.Error<LoadedScene, SceneLoadError>(maybe.Match<SceneLoadError>(_ => null!, e => e));
+                    var id = maybe.Match(ok: x => x, error: _ => default);
+                    textureIds[i] = id;
+                    sources = sources.WithTexture(id, entry.Source);
                     break;
                 }
             }
@@ -69,7 +80,7 @@ public static class SceneLoader
                     var r = assets.RegisterMaterial(bp.Name, id => new BlinnPhongMaterial(
                         id, bp.Name, ToVec3(bp.Albedo), bp.SpecularStrength, bp.Shininess, albedoMap));
                     if (r.IsError)
-                        return Result.Error<UiModel, SceneLoadError>(
+                        return Result.Error<LoadedScene, SceneLoadError>(
                             r.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.AssetUploadFailed(bp.Name, e.Message)));
                     materialIds[i] = r.Match(ok: id => id, error: _ => default);
                     break;
@@ -88,20 +99,24 @@ public static class SceneLoader
                 {
                     var data = procedural.TryCreateMesh(p.Generator, p.Params);
                     if (data is null)
-                        return Result.Error<UiModel, SceneLoadError>(
+                        return Result.Error<LoadedScene, SceneLoadError>(
                             new SceneLoadError.UnknownProceduralGenerator("mesh", p.Generator));
                     var r = assets.RegisterMesh(entry.Name, data);
                     if (r.IsError)
-                        return Result.Error<UiModel, SceneLoadError>(
+                        return Result.Error<LoadedScene, SceneLoadError>(
                             r.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.AssetUploadFailed(entry.Name, e.Message)));
-                    meshIds[i] = r.Match(ok: id => id, error: _ => default);
+                    var id = r.Match(ok: x => x, error: _ => default);
+                    meshIds[i] = id;
+                    sources = sources.WithMesh(id, entry.Source);
                     break;
                 }
                 case FileSourceDoc f:
                 {
                     var maybe = ResolveFileMesh(projectRoot, f.Path, assets, fileTextureCache, fileMeshCache);
-                    if (maybe.IsError) return Result.Error<UiModel, SceneLoadError>(maybe.Match<SceneLoadError>(_ => null!, e => e));
-                    meshIds[i] = maybe.Match(ok: id => id, error: _ => default);
+                    if (maybe.IsError) return Result.Error<LoadedScene, SceneLoadError>(maybe.Match<SceneLoadError>(_ => null!, e => e));
+                    var id = maybe.Match(ok: x => x, error: _ => default);
+                    meshIds[i] = id;
+                    sources = sources.WithMesh(id, entry.Source);
                     break;
                 }
             }
@@ -174,7 +189,7 @@ public static class SceneLoader
             Viz = viz,
             ClearColor = ToVec3(doc.RenderConfig.ClearColor),
         };
-        return Result.Ok<UiModel, SceneLoadError>(ui);
+        return Result.Ok<LoadedScene, SceneLoadError>(new LoadedScene(ui, sources));
     }
 
     // ─── File-source resolution (cached per-load) ─────────────────────

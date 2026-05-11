@@ -19,7 +19,7 @@ If a doc exists for the area you are touching, read it before proposing changes.
 |---|---|
 | `docs/ARCHITECTURE.md` | Any structural change, new module, new abstraction |
 | `docs/ADDING-A-PAPER.md` | Adding a new paper implementation |
-| `docs/DEMO-ARCHITECTURE.md` | Why and how `RenderLab.App/Demos/` hosts one demo per article |
+| `docs/PROJECT-MODEL.md` | How `code/projects/` + `IPipeline` + `Application` replace the old per-demo composition roots |
 | `docs/QOL-STRATEGY.md` | Tooling, developer experience, debug workflows |
 | `docs/DOCUMENTATION-RULES.md` | Writing or editing any doc or XML comment |
 
@@ -33,21 +33,26 @@ code/
   RenderLab-PRD.md              product requirements, milestones
   docs/                         architectural decision records
   src/
-    RenderLab.App               desktop composition root (wires everything)
+    RenderLab.App               Application composition root + Program (project-path argv)
     RenderLab.Gpu               Vulkan bindings, GpuState (impure kernel)
     RenderLab.Graph             pure render graph compiler
     RenderLab.Scene             immutable scene data (Scene snapshot, Camera, Mesh, Vertex, Light DU, HemisphericAmbient, MaterialParams)
     RenderLab.Papers            paper implementations (DeferredLighting)
     RenderLab.Functional        Optional, Result, Pipe
+    RenderLab.Project           pure project + scene document model + JSON IO
+    RenderLab.Pipelines         IPipeline + Triangle/GBuffer/Deferred + SceneLoader + SceneBuilder
     RenderLab.Ui                pure Elm-style UI state (Model/Msg/Update/Intent)
     RenderLab.Ui.ImGui          imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
     RenderLab.Shaders           GLSL / SPIR-V shaders
     RenderLab.Platform.Desktop  GLFW window
+  projects/
+    triangle/, gbuffer/, deferred/   Starter projects (project.json + assets/ + scenes/)
   tests/
     RenderLab.Functional.Tests
     RenderLab.Graph.Tests
     RenderLab.Scene.Tests
     RenderLab.Ui.Tests
+    RenderLab.Project.Tests
 ```
 
 ## Tooling

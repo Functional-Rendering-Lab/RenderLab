@@ -86,6 +86,15 @@ public sealed class MaterialDescriptors : IDisposable
         _cache.Remove(key);
     }
 
+    /// <summary>
+    /// Drops every cached descriptor set. Call after the registry resets
+    /// for a scene swap (and after <c>vkDeviceWaitIdle</c>) so subsequent
+    /// <see cref="GetOrAllocate"/> calls rebind against the fresh image
+    /// views. The pool keeps the orphaned sets — they're reclaimed when
+    /// the pool is destroyed.
+    /// </summary>
+    public void InvalidateAll() => _cache.Clear();
+
     public unsafe void Dispose()
     {
         _gpu.Vk.DestroyDescriptorPool(_gpu.Device, _pool, null);

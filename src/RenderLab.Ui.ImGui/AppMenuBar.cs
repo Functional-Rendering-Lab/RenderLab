@@ -6,9 +6,9 @@ namespace RenderLab.Ui.ImGui;
 using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
-/// Main menu bar shared across demos: File / View / Demo. Dispatches
-/// <see cref="AppUiMsg"/>s that the shell folds into <see cref="AppUiModel"/>.
-/// Paired with <c>ImGui.DockSpaceOverViewport</c> in the host view for docking.
+/// Main menu bar: File / View. Dispatches <see cref="AppUiMsg"/>s that the
+/// shell folds into <see cref="AppUiModel"/>. Paired with
+/// <c>ImGui.DockSpaceOverViewport</c> in the host view for docking.
 /// </summary>
 public static class AppMenuBar
 {
@@ -18,10 +18,41 @@ public static class AppMenuBar
 
         if (ImGui.BeginMenu("File"))
         {
+            if (ImGui.MenuItem("New Project…"))
+                dispatch(new AppUiMsg.RequestNewProjectDialog());
+            if (ImGui.MenuItem("Open Project…"))
+                dispatch(new AppUiMsg.RequestOpenProjectDialog());
+
+            bool sceneMenuEnabled = app.AvailableScenes.Length > 0;
+            if (ImGui.BeginMenu("Open Scene", sceneMenuEnabled))
+            {
+                foreach (var path in app.AvailableScenes)
+                {
+                    bool active = string.Equals(path, app.ActiveScenePath, StringComparison.OrdinalIgnoreCase);
+                    if (ImGui.MenuItem(path, "", active))
+                        dispatch(new AppUiMsg.RequestOpenScene(path));
+                }
+                ImGui.EndMenu();
+            }
+
+            bool hasActive = !string.IsNullOrEmpty(app.ActiveScenePath);
+            if (ImGui.MenuItem("Reload Scene", "", false, hasActive))
+                dispatch(new AppUiMsg.RequestReloadScene());
+
+            ImGui.Separator();
+
+            string saveLabel = hasActive
+                ? (app.SceneDirty ? $"Save Scene ({app.ActiveScenePath})*" : $"Save Scene ({app.ActiveScenePath})")
+                : "Save Scene";
+            if (ImGui.MenuItem(saveLabel, "Ctrl+S", false, hasActive))
+                dispatch(new AppUiMsg.RequestSaveScene());
+            if (ImGui.MenuItem("Save Scene As…", "", false, hasActive))
+                dispatch(new AppUiMsg.RequestSaveSceneAs());
+
+            ImGui.Separator();
             if (ImGui.MenuItem("Import glTF…"))
                 dispatch(new AppUiMsg.RequestImportGltfDialog());
-            if (ImGui.MenuItem("Import sample (BoxTextured)"))
-                dispatch(new AppUiMsg.RequestImportGltf("assets/box-textured.glb"));
+
             ImGui.Separator();
             if (ImGui.MenuItem("Exit", "Alt+F4"))
                 dispatch(new AppUiMsg.RequestExit());
@@ -40,14 +71,6 @@ public static class AppMenuBar
             ImGui.EndMenu();
         }
 
-        if (ImGui.BeginMenu("Demo"))
-        {
-            DemoEntry("Triangle", DemoId.Triangle, app.CurrentDemo, dispatch);
-            DemoEntry("GBuffer",  DemoId.GBuffer,  app.CurrentDemo, dispatch);
-            DemoEntry("Deferred", DemoId.Deferred, app.CurrentDemo, dispatch);
-            ImGui.EndMenu();
-        }
-
         ImGui.EndMainMenuBar();
     }
 
@@ -56,12 +79,5 @@ public static class AppMenuBar
         bool next = app.IsPanelVisible(id);
         if (ImGui.MenuItem(label, "", ref next))
             dispatch(new AppUiMsg.SetPanelVisible(id, next));
-    }
-
-    private static void DemoEntry(string label, DemoId id, DemoId current, Action<AppUiMsg> dispatch)
-    {
-        bool selected = id == current;
-        if (ImGui.MenuItem(label, "", selected, !selected))
-            dispatch(new AppUiMsg.RequestSwitchDemo(id));
     }
 }

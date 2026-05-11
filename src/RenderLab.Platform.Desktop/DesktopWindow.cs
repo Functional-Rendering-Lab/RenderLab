@@ -33,6 +33,9 @@ public sealed class DesktopWindow : IPlatformWindow
 
     public void ClearResizeFlag() => _resized = false;
 
+    /// <summary>Update the OS title bar caption. Used when the active project name changes.</summary>
+    public void SetTitle(string title) => _window.Title = title;
+
     private DesktopWindow(IWindow window, IInputContext input)
     {
         _window = window;

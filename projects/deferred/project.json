@@ -1,0 +1,10 @@
+{
+  "version": 1,
+  "name": "Deferred Lab",
+  "pipeline": "deferred",
+  "defaultScene": "scenes/main.scene.json",
+  "scenes": [
+    "scenes/main.scene.json",
+    "scenes/materials-test.scene.json"
+  ]
+}

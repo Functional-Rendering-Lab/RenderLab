@@ -2,6 +2,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
+    <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
+    <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

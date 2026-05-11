@@ -6,18 +6,23 @@ For goals, milestones, and design rationale see [RenderLab-PRD.md](../RenderLab-
 ## Module Dependency Graph
 
 ```
-RenderLab.App              (desktop composition root — wires everything)
-  |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
-  |     |-> RenderLab.Scene      (Scene snapshot, Camera, Drawable, Light DU, HemisphericAmbient, MaterialParams — pure)
-  |     |     '-> RenderLab.Assets    (MeshId/TextureId/MaterialId, MeshAsset, TextureAsset, MaterialAsset DU + BlinnPhongMaterial, Vertex3D, MeshData, ObjLoader, GltfLoader, IAssetCatalog, AssetError — pure)
-  |     '-> RenderLab.Gpu        (Vulkan bindings, handles, commands, state)
+RenderLab.App              (desktop composition root — Application + Program)
+  |-> RenderLab.Pipelines  (IPipeline + concrete pipelines: Triangle/GBuffer/Deferred + SceneLoader/SceneBuilder)
+  |     |-> RenderLab.Project    (pure project + scene document model + JSON IO)
+  |     |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
+  |     |     |-> RenderLab.Scene
+  |     |     '-> RenderLab.Gpu
+  |     |-> RenderLab.Ui.ImGui   (UiView + GpuTimestamps — used by DeferredPipeline)
+  |     |-> RenderLab.Ui
+  |     |-> RenderLab.Assets
+  |     |-> RenderLab.Graph
+  |     |-> RenderLab.Scene
+  |     '-> RenderLab.Gpu
   |-> RenderLab.Gpu
   |     |-> RenderLab.Graph      (pure render graph compiler)
   |     |-> RenderLab.Assets
   |     '-> RenderLab.Functional (Optional, Result, Pipe)
-  |-> RenderLab.Graph
-  |-> RenderLab.Scene
-  |-> RenderLab.Assets
+  |-> RenderLab.Project    (read project.json + *.scene.json from disk)
   |-> RenderLab.Ui         (pure Elm-style state: Model/Msg/Update/Intent — no ImGui, no Vulkan)
   |-> RenderLab.Ui.ImGui   (imperative shell for RenderLab.Ui: ImGui views + GPU timestamps -> depends on Gpu, Ui)
   '-> RenderLab.Platform.Desktop  (GLFW window — no internal deps)
@@ -27,7 +32,7 @@ No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero sid
 
 ### Ui ↔ Ui.ImGui split
 
-`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `DemoId`, `FrameStats`, plus `EditableDrawable` (the editor-side mirror of a scene `Drawable`). It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
+`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `FrameStats`, plus `EditableDrawable` (the editor-side mirror of a scene `Drawable`). It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
 
 `RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Each debug panel (`AppMenuBar`, `LightingDebugMenu`, `FreeCameraDebugMenu`, `RenderGraphDebugMenu`, `VisualizationDebugMenu`, `ScenePanel`) reads an immutable slice of the model, draws ImGui widgets, and returns `UiIntent`s the shell folds back through `AppUiUpdate`. `ScenePanel` is the editor surface for the drawable list — selection, add (clones the selection), remove, and an inline transform/material inspector for the selected drawable; the camera and light sub-trees are read-only.
 
@@ -47,7 +52,7 @@ Pure code references meshes, textures, and materials by typed ID — `MeshId` / 
 
 Material assets are mutable in place — the editor edits the named asset by id rather than carrying a copy of the parameters on each `Drawable`. The pure UI reducer treats `UiMsg.UpdateMaterialAsset` as a no-op; the shell intercepts those messages and applies them to the registry before resolving the next frame.
 
-`Program.cs` (desktop) is a CLI dispatcher that selects a demo class from `Demos/` by name. Each demo is a self-contained composition root — it owns its window, GPU, render loop, and cleanup. See [`DEMO-ARCHITECTURE.md`](DEMO-ARCHITECTURE.md) for the rationale.
+`Program.cs` (desktop) is a thirty-line composition root: it builds a `PipelineRegistry` (one factory per pipeline id), picks a project path from argv, and hands both to `Application.Run`. The `Application` owns the window, `GpuState`, `AssetRegistry`, ImGui shell, and the editor's `UiModel` when the active pipeline declares `ConsumesScenes`. Each runnable workspace lives on disk as a project — see [`PROJECT-MODEL.md`](PROJECT-MODEL.md).
 
 ### Swapchain present mode (lab policy)
 
@@ -107,7 +112,7 @@ Lighting pass       -> reads GBuffer textures via descriptor set 0, writes HDR i
   |
 Tonemap pass        -> reads HDR, writes to swapchain backbuffer
   |
-ImGui overlay       -> renders debug stats on top (outside render graph)
+ImGui overlay       -> Application records on top (outside the pipeline's render graph)
 ```
 
 ## Key Abstractions
@@ -143,21 +148,31 @@ ImGui overlay       -> renders debug stats on top (outside render graph)
 | `IGpuAssetResolver` / `GpuMeshHandles` / `GpuTextureHandles` | `Gpu/Assets/` | Shell-side resolver from IDs to live vertex/index buffers and image view + sampler |
 | `MaterialDescriptors` | `Gpu/Assets/MaterialDescriptors.cs` | Per-`TextureId` descriptor-set cache for the GBuffer material slot; one set per texture, reused across frames |
 | `GltfLoader` | `Assets/GltfLoader.cs` | Pure parser (SharpGLTF + StbImageSharp) producing a `GltfImport` blueprint: meshes, RGBA textures, materials (PBR baseColor → Blinn-Phong), drawable seeds with raw position/scale and index cross-refs |
-| `AssetRegistry.ImportGltf` | `Gpu/Assets/AssetRegistry.cs` | Shell orchestration of a `GltfImport`: registers in dependency order (textures → materials → meshes → drawables) and rewrites indices into real ids; returns `GltfImportResult` for the demo to dispatch as `UiMsg.AddDrawable` |
+| `AssetRegistry.ImportGltf` | `Gpu/Assets/AssetRegistry.cs` | Shell orchestration of a `GltfImport`: registers in dependency order (textures → materials → meshes → drawables) and rewrites indices into real ids; returns `GltfImportResult` for the Application to dispatch as `UiMsg.AddDrawable` |
+| `ProjectManifest` / `SceneDocument` | `Project/*.cs` | Pure on-disk model — `project.json` + `*.scene.json` schemas with `System.Text.Json` polymorphism for lights, materials, asset sources |
+| `ProjectIO` | `Project/ProjectIO.cs` | JSON read/write for manifests + scenes; path-sandbox normalisation that rejects `..` escapes |
+| `IProceduralAssetSource` / `DefaultProceduralAssets` | `Assets/*.cs` | Pure registry of named procedural generators (`sphere` / `cube` / `checker`) used by `SceneLoader` to materialise `procedural` asset sources without baking pixels into scene files |
+| `IPipeline` | `Pipelines/IPipeline.cs` | The runtime contract for a rendering technique: `Initialize` / `RecreateTransient` / `RecordFrame`, `ConsumesScenes` flag, optional `DrawDebugUi` + `GetFrameStats` for editor integration |
+| `PipelineRegistry` | `Pipelines/PipelineRegistry.cs` | Maps the `pipeline` string in `project.json` to a factory (`Resolve` returns a `Result`) |
+| `SceneLoader` / `SceneBuilder` | `Pipelines/*.cs` | `SceneLoader` is the impure boundary that turns a `SceneDocument` into a runtime `UiModel` (registers assets via `AssetRegistry`); `SceneBuilder` is the pure projection from `UiModel` + aspect → immutable `Scene` snapshot |
+| `Application` | `App/Application.cs` | Single composition root replacing the per-demo bootstraps. Hosts window/GPU/ImGui/AssetRegistry/UiModel; drives the frame loop; routes registry-side asset edits (import, remove) for the deferred pipeline |
 
 ## Build and Run
 
 ```bash
 # Prerequisites: .NET 9 SDK, Vulkan SDK (for glslc)
 
-# Desktop — runs the default demo (deferred)
-dotnet build src/RenderLab.App
+# Desktop — runs the default project (deferred)
+dotnet build code.sln
 dotnet run --project src/RenderLab.App
 
-# Desktop — pick a specific demo (see docs/DEMO-ARCHITECTURE.md)
-dotnet run --project src/RenderLab.App -- triangle   # Post 2
-dotnet run --project src/RenderLab.App -- gbuffer    # Post 3
-dotnet run --project src/RenderLab.App -- deferred   # Post 4
+# Desktop — pick a specific project (see docs/PROJECT-MODEL.md)
+dotnet run --project src/RenderLab.App -- code/projects/triangle   # Post 2
+dotnet run --project src/RenderLab.App -- code/projects/gbuffer    # Post 3
+dotnet run --project src/RenderLab.App -- code/projects/deferred   # Post 4
+
+# Or any folder containing a project.json
+dotnet run --project src/RenderLab.App -- C:\path\to\my-project
 
 # Compile shaders (requires glslc on PATH)
 python src/RenderLab.Shaders/compile_shaders.py
@@ -187,11 +202,16 @@ src/
                                TonemapPass, DebugVizPass
   RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
   RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
+  RenderLab.Project/           Pure project + scene document model + JSON IO
+  RenderLab.Pipelines/         IPipeline + Triangle/GBuffer/Deferred + SceneLoader + SceneBuilder
   RenderLab.Shaders/           GLSL sources + SPIR-V build script
-  RenderLab.App/               CLI dispatcher + per-article demos under Demos/
+  RenderLab.App/               Application composition root + Program.cs (project-path argv)
+projects/
+  triangle/, gbuffer/, deferred/   Starter projects (project.json + assets/ + scenes/)
 tests/
   RenderLab.Functional.Tests/  Optional, Result, Pipe
   RenderLab.Graph.Tests/       Topological sort, barrier insertion, cycle detection
   RenderLab.Scene.Tests/       Camera math, free-fly controller, material packing
   RenderLab.Ui.Tests/          Pure UI reducers (Model/Msg/Update)
+  RenderLab.Project.Tests/     Manifest + scene round-trip, path-sandbox, index validation
 ```

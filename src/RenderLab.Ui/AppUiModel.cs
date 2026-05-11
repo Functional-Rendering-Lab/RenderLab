@@ -3,42 +3,50 @@ using System.Collections.Immutable;
 namespace RenderLab.Ui;
 
 /// <summary>
-/// App-shell state, separate from the per-demo <see cref="UiModel"/>. Holds
-/// which demo is running, which demo the user wants to switch to next (one-shot
-/// signal consumed by the outer loop), the set of visible debug panels, and an
-/// exit request. Panel visibility is preserved across demo switches so the
-/// user's layout follows them.
+/// App-shell state, separate from the per-pipeline <see cref="UiModel"/>.
+/// Holds the visible debug-panel set, an exit request the loop drains, and
+/// project / scene metadata the menu reads (project name, active scene path,
+/// the manifest's full scene list). Project / scene fields are updated by
+/// the shell directly — they're notifications of completed work, not user
+/// requests, so they don't flow through the reducer.
 /// </summary>
 public sealed record AppUiModel(
-    DemoId CurrentDemo,
-    DemoId? RequestedDemo,
     bool RequestedExit,
-    ImmutableHashSet<PanelId> VisiblePanels)
+    ImmutableHashSet<PanelId> VisiblePanels,
+    string ProjectName,
+    string ActiveScenePath,
+    ImmutableArray<string> AvailableScenes,
+    bool SceneDirty)
 {
-    public static AppUiModel Default(DemoId demo) => new(
-        CurrentDemo: demo,
-        RequestedDemo: null,
-        RequestedExit: false,
-        VisiblePanels: AllPanels);
-
     private static readonly ImmutableHashSet<PanelId> AllPanels =
         ImmutableHashSet.CreateRange(Enum.GetValues<PanelId>());
 
-    /// <summary>
-    /// Copy this model into the next demo's starting state: clears the one-shot
-    /// switch request and updates <see cref="CurrentDemo"/>. Panel visibility is
-    /// preserved so the user's layout follows them across demos.
-    /// </summary>
-    public AppUiModel HandOffTo(DemoId next) => this with
-    {
-        CurrentDemo = next,
-        RequestedDemo = null,
-    };
+    public static AppUiModel Default { get; } = new(
+        RequestedExit: false,
+        VisiblePanels: AllPanels,
+        ProjectName: "",
+        ActiveScenePath: "",
+        AvailableScenes: ImmutableArray<string>.Empty,
+        SceneDirty: false);
 
     public bool IsPanelVisible(PanelId id) => VisiblePanels.Contains(id);
 
     public AppUiModel WithPanelVisible(PanelId id, bool visible) => this with
     {
         VisiblePanels = visible ? VisiblePanels.Add(id) : VisiblePanels.Remove(id),
+    };
+
+    public AppUiModel WithProject(string name, string activeScene, ImmutableArray<string> scenes) => this with
+    {
+        ProjectName = name,
+        ActiveScenePath = activeScene,
+        AvailableScenes = scenes,
+        SceneDirty = false,
+    };
+
+    public AppUiModel WithActiveScene(string activeScene) => this with
+    {
+        ActiveScenePath = activeScene,
+        SceneDirty = false,
     };
 }
