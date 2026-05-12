@@ -74,6 +74,7 @@ public sealed class DesktopWindow : IPlatformWindow
             Title = title,
             Size = size,
             IsVisible = true,
+            WindowState = WindowState.Maximized,
         };
 
         var window = Window.Create(options);

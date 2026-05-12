@@ -21,16 +21,31 @@ public static class DeferredLighting
         int lightCount,
         ShadingMode mode,
         HemisphericAmbient ambient,
-        bool lightingOnly = false) => new()
+        bool lightingOnly = false,
+        int backgroundMode = 0)
     {
-        CameraPos = new Vector4(camera.Position, 1f),
-        ShadingMode = (int)mode,
-        LightingOnly = lightingOnly ? 1 : 0,
-        LightCount = lightCount,
-        Pad0 = 0,
-        AmbientSky = new Vector4(ambient.Sky, 0f),
-        AmbientGround = new Vector4(ambient.Ground, 0f),
-    };
+        // Build world-space camera basis so the background path can reconstruct
+        // a view ray per pixel without an inverse view-projection matrix.
+        var forward = Vector3.Normalize(camera.Target - camera.Position);
+        var right = Vector3.Normalize(Vector3.Cross(forward, camera.Up));
+        var upCam = Vector3.Cross(right, forward);
+        var tanHalfFovY = MathF.Tan(camera.FovRadians * 0.5f);
+        var tanHalfFovX = tanHalfFovY * camera.AspectRatio;
+
+        return new LightingPushConstants
+        {
+            CameraPos = new Vector4(camera.Position, 1f),
+            ShadingMode = (int)mode,
+            LightingOnly = lightingOnly ? 1 : 0,
+            LightCount = lightCount,
+            BackgroundMode = backgroundMode,
+            AmbientSky = new Vector4(ambient.Sky, 0f),
+            AmbientGround = new Vector4(ambient.Ground, 0f),
+            CamRight = new Vector4(right * tanHalfFovX, 0f),
+            CamUp = new Vector4(upCam * tanHalfFovY, 0f),
+            CamForward = new Vector4(forward, 0f),
+        };
+    }
 
     public static unsafe void Record(
         Vk vk,

@@ -29,12 +29,18 @@ public struct GBufferPushConstants
 public struct LightingPushConstants
 {
     public Vector4 CameraPos;
-    public int ShadingMode;    // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
-    public int LightingOnly;   // 1 = drop albedo factor (ambient stays on)
+    public int ShadingMode;     // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
+    public int LightingOnly;    // 1 = drop albedo factor (ambient stays on)
     public int LightCount;
-    public int Pad0;
+    public int BackgroundMode;  // 0 = solid clear, 1 = ambient gradient
     public Vector4 AmbientSky;
     public Vector4 AmbientGround;
+    // View basis for reconstructing world-space ray direction in the background.
+    // xyz of CamRight/CamUp are pre-scaled by tan(fovX/2) and tan(fovY/2) so the
+    // shader can do `forward + ndc.x * right - ndc.y * up` and normalize.
+    public Vector4 CamRight;
+    public Vector4 CamUp;
+    public Vector4 CamForward;
 }
 
 /// <summary>

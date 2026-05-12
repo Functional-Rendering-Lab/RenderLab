@@ -20,7 +20,8 @@ public sealed record UiModel(
     ShadingMode Shading,
     bool LightingOnly,
     VisualizationMode Viz,
-    Vector3 ClearColor)
+    Vector3 ClearColor,
+    BackgroundMode Background)
 {
     public static UiModel Default => new(
         Camera: FreeCameraController.CreateDefault(),
@@ -47,7 +48,8 @@ public sealed record UiModel(
         Shading: ShadingMode.BlinnPhong,
         LightingOnly: false,
         Viz: VisualizationMode.Final,
-        ClearColor: Vector3.Zero);
+        ClearColor: Vector3.Zero,
+        Background: BackgroundMode.SolidColor);
 
     /// <summary>Default seed for a new point light added through the lighting panel.</summary>
     public static PointLight DefaultNewPointLight => new(

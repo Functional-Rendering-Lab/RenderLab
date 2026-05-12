@@ -23,9 +23,14 @@ layout(push_constant) uniform LightParams {
     int  shadingMode;     // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
     int  lightingOnly;    // 1 = drop albedo factor (ambient stays on)
     int  lightCount;
-    int  _pad0;           // align next vec4 to 16 bytes (matches C# layout)
+    int  backgroundMode;  // 0 = solid clear, 1 = ambient gradient
     vec4 ambientSky;      // hemispheric ambient: top hemisphere
     vec4 ambientGround;   // hemispheric ambient: bottom hemisphere
+    // View basis for reconstructing a world-space ray in the background path.
+    // xyz of camRight / camUp are pre-scaled by tan(fovX/2) and tan(fovY/2).
+    vec4 camRight;
+    vec4 camUp;
+    vec4 camForward;
 } pc;
 
 layout(location = 0) in vec2 uv;
@@ -92,9 +97,23 @@ void main() {
     vec4 albedoSample = texture(gAlbedo, uv);
 
     // GBuffer is cleared to 0 and geometry writes normalized normals (length ≈ 1).
-    // Discard pixels with no geometry so the render pass clear color survives.
+    // No geometry here → background path. Solid mode discards so the render pass
+    // clear color survives; ambient-gradient mode writes a hemispheric blend
+    // along the view ray's world-Y axis (sky/ground horizon).
     if (length(normalSample.rgb) < 0.5) {
-        discard;
+        if (pc.backgroundMode == 0) {
+            discard;
+        }
+        vec2 ndc = uv * 2.0 - 1.0;
+        // Vulkan framebuffer Y points down: ndc.y = -1 is the top of the screen,
+        // which should look "up" in world space, so we subtract ndc.y * camUp.
+        vec3 rayDir = normalize(pc.camForward.xyz
+                              + ndc.x * pc.camRight.xyz
+                              - ndc.y * pc.camUp.xyz);
+        float skyMixBg = rayDir.y * 0.5 + 0.5;
+        vec3 bgColor = mix(pc.ambientGround.rgb, pc.ambientSky.rgb, skyMixBg);
+        outColor = vec4(bgColor, 1.0);
+        return;
     }
 
     vec3 fragPos = texture(gPosition, uv).rgb;

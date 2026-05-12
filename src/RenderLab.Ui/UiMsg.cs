@@ -34,4 +34,5 @@ public abstract record UiMsg
     public sealed record SetLightingOnly(bool On) : UiMsg;
     public sealed record SetViz(VisualizationMode Mode) : UiMsg;
     public sealed record SetClearColor(Vector3 Color) : UiMsg;
+    public sealed record SetBackground(BackgroundMode Mode) : UiMsg;
 }

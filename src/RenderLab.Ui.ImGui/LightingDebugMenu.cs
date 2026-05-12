@@ -23,10 +23,16 @@ public static class LightingDebugMenu
         "Blinn-Phong (N·H)",
     };
 
+    private static readonly string[] BackgroundModeNames =
+    {
+        "Solid color",
+        "Ambient gradient",
+    };
+
     public static void Draw(
         ImmutableArray<Light> lights, HemisphericAmbient ambient,
         ShadingMode mode, bool lightingOnly,
-        Vector3 clearColor, Action<UiMsg> dispatch)
+        Vector3 clearColor, BackgroundMode background, Action<UiMsg> dispatch)
     {
         ImGui.SetNextWindowPos(new Vector2(10, 440), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(360, 480), ImGuiCond.FirstUseEver);
@@ -46,6 +52,7 @@ public static class LightingDebugMenu
         var newGround = DebugFields.ColorEdit("Ground", ambient.Ground);
 
         ImGui.SeparatorText("Background");
+        var newBackground = (BackgroundMode)DebugFields.ComboEdit("Mode", (int)background, BackgroundModeNames);
         var newClearColor = DebugFields.ColorEdit("Clear color", clearColor);
 
         ImGui.SeparatorText($"Lights ({lights.Length})");
@@ -71,6 +78,9 @@ public static class LightingDebugMenu
 
         if (newClearColor != clearColor)
             dispatch(new UiMsg.SetClearColor(newClearColor));
+
+        if (newBackground != background)
+            dispatch(new UiMsg.SetBackground(newBackground));
     }
 
     private static void DrawLightRow(int index, Light light, Action<UiMsg> dispatch)

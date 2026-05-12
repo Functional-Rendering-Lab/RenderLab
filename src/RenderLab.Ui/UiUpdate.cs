@@ -28,6 +28,7 @@ public static class UiUpdate
         UiMsg.SetLightingOnly m         => model with { LightingOnly = m.On },
         UiMsg.SetViz m                  => model with { Viz = m.Mode },
         UiMsg.SetClearColor m           => model with { ClearColor = m.Color },
+        UiMsg.SetBackground m           => model with { Background = m.Mode },
         _                               => model,
     };
 

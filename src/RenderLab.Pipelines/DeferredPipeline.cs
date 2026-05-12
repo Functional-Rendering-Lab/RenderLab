@@ -285,7 +285,7 @@ public sealed class DeferredPipeline : IPipeline
             LightDescriptorSet: lightDescSets[gpu.CurrentFrame],
             Extent: gpu.SwapchainExtent);
         var pc = DeferredLighting.BuildPushConstants(
-            scene.Camera, lightCount, ui.Shading, ui.Ambient, ui.LightingOnly);
+            scene.Camera, lightCount, ui.Shading, ui.Ambient, ui.LightingOnly, (int)ui.Background);
         DeferredLighting.Record(api, cb, resources, pc, ui.ClearColor);
         timestamps.EndPass(api, cb);
     }
