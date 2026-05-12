@@ -23,6 +23,22 @@ public abstract record AppUiMsg
     public sealed record RequestRemoveTexture(RenderLab.Assets.TextureId Id) : AppUiMsg;
     public sealed record RequestRemoveMaterial(RenderLab.Assets.MaterialId Id) : AppUiMsg;
 
+    /// <summary>
+    /// Persist edited Blinn-Phong material parameters back to the
+    /// <c>.mat.json</c> sidecar identified by <paramref name="Guid"/>, then
+    /// — if the material is currently registered — apply the same change to
+    /// the runtime registry for live preview. Parameters travel as primitives
+    /// to keep <c>RenderLab.Ui</c> free of a <c>RenderLab.Project</c>
+    /// dependency.
+    /// </summary>
+    public sealed record RequestUpdateMaterial(
+        System.Guid Guid,
+        float[] Albedo,
+        float SpecularStrength,
+        float Shininess,
+        System.Guid? AlbedoTexGuid,
+        string? AlbedoTexSub) : AppUiMsg;
+
     // ─── Project / scene lifecycle (M6.2 + M6.3) ───────────────────────
 
     /// <summary>Save the current scene back to <c>activeScenePath</c>.</summary>

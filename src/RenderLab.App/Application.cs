@@ -394,6 +394,9 @@ public sealed class Application : IDisposable
             case AppUiMsg.RequestRemoveMaterial rmat:
                 HandleRemoveMaterial(rmat.Id);
                 break;
+            case AppUiMsg.RequestUpdateMaterial umat:
+                HandleUpdateMaterial(umat);
+                break;
             case AppUiMsg.RequestSaveScene:
                 HandleSaveScene(activeScenePath);
                 break;
@@ -532,6 +535,81 @@ public sealed class Application : IDisposable
             app = app with { SceneDirty = true };
         }
         catch (Exception ex) { Console.WriteLine($"  remove texture #{id.Value} failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Persist a material edit from the Asset Browser to its <c>.mat.json</c>
+    /// sidecar and — when the material is currently bound to a registered
+    /// <see cref="MaterialId"/> — mirror the change in the runtime registry so
+    /// the next frame renders with the new parameters.
+    /// </summary>
+    void HandleUpdateMaterial(AppUiMsg.RequestUpdateMaterial msg)
+    {
+        var entry = assetLibrary.Find(msg.Guid) as MaterialAssetEntry;
+        if (entry is null)
+        {
+            Console.WriteLine($"  update material {msg.Guid:D}: no library entry");
+            return;
+        }
+
+        AssetRef? albedoTexRef = msg.AlbedoTexGuid is Guid g ? new AssetRef(g, msg.AlbedoTexSub) : null;
+
+        var resolved = ProjectIO.ResolveProjectPath(projectRoot, entry.ProjectRelativePath);
+        if (resolved.IsError)
+        {
+            Console.WriteLine($"  update material {entry.Name}: {resolved.Match<ProjectError>(_ => null!, e => e).Message}");
+            return;
+        }
+        var absolute = resolved.Match(ok: p => p, error: _ => "");
+
+        var doc = new MaterialFileDoc(
+            Version: 1,
+            Name: entry.Name,
+            Params: new MaterialParamsDoc(msg.Albedo, msg.SpecularStrength, msg.Shininess),
+            AlbedoTex: albedoTexRef);
+        try
+        {
+            AssetLibraryScanner.WriteMaterial(absolute, doc);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  update material {entry.Name}: write failed: {ex.Message}");
+            return;
+        }
+
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+
+        // Reverse-lookup the runtime MaterialId. A material may be edited even
+        // when no scene drawable references it — disk persistence is the only
+        // effect in that case.
+        MaterialId? liveId = null;
+        foreach (var kv in sources.MaterialSources)
+            if (kv.Value.Guid == msg.Guid) { liveId = kv.Key; break; }
+        if (liveId is not MaterialId id) return;
+
+        if (!assets.TryGetMaterial(id, out var existing) || existing is not BlinnPhongMaterial bp) return;
+
+        var albedoMap = bp.AlbedoMap;
+        if (albedoTexRef is AssetRef texRef)
+        {
+            foreach (var kv in sources.TextureSources)
+                if (kv.Value == texRef) { albedoMap = kv.Key; break; }
+        }
+        else
+        {
+            albedoMap = TextureId.None;
+        }
+
+        var albedo = msg.Albedo;
+        assets.UpdateMaterial(id, new BlinnPhongMaterial(
+            id, bp.Name,
+            new Vector3(albedo[0], albedo[1], albedo[2]),
+            msg.SpecularStrength,
+            msg.Shininess,
+            albedoMap));
+        // The scene doc is unchanged (the material lives in its own .mat.json
+        // which was just written), so SceneDirty stays as-is.
     }
 
     void HandleRemoveMaterial(MaterialId id)
