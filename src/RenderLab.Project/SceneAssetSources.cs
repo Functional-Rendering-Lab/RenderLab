@@ -4,35 +4,36 @@ using RenderLab.Assets;
 namespace RenderLab.Project;
 
 /// <summary>
-/// Runtime mapping from registered asset ids to the symbolic
-/// <see cref="AssetSourceDoc"/> they came from. Built up by
-/// <c>SceneLoader</c> as the scene is materialised, extended by the
-/// shell whenever the user imports a new asset (glTF), and consumed
-/// by <see cref="SceneDocumentBuilder"/> on save so the same source
-/// declaration round-trips back into the scene file.
+/// Runtime map from registered asset ids back to the <see cref="AssetRef"/>
+/// they were resolved from. Built up by <c>SceneLoader</c> as the scene is
+/// materialised and consumed by <see cref="SceneDocumentBuilder"/> on save
+/// so drawables round-trip back to the same stable references.
 /// </summary>
-/// <remarks>
-/// Materials are not tracked here — they are scene-scoped parameter
-/// bundles, not file-backed, so the builder serialises them inline by
-/// looking up the live <see cref="MaterialAsset"/> via the catalog.
-/// </remarks>
 public sealed record SceneAssetSources(
-    ImmutableDictionary<MeshId, AssetSourceDoc> MeshSources,
-    ImmutableDictionary<TextureId, AssetSourceDoc> TextureSources)
+    ImmutableDictionary<MeshId, AssetRef> MeshSources,
+    ImmutableDictionary<TextureId, AssetRef> TextureSources,
+    ImmutableDictionary<MaterialId, AssetRef> MaterialSources)
 {
     public static SceneAssetSources Empty { get; } = new(
-        ImmutableDictionary<MeshId, AssetSourceDoc>.Empty,
-        ImmutableDictionary<TextureId, AssetSourceDoc>.Empty);
+        ImmutableDictionary<MeshId, AssetRef>.Empty,
+        ImmutableDictionary<TextureId, AssetRef>.Empty,
+        ImmutableDictionary<MaterialId, AssetRef>.Empty);
 
-    public SceneAssetSources WithMesh(MeshId id, AssetSourceDoc source) =>
-        this with { MeshSources = MeshSources.SetItem(id, source) };
+    public SceneAssetSources WithMesh(MeshId id, AssetRef r) =>
+        this with { MeshSources = MeshSources.SetItem(id, r) };
 
-    public SceneAssetSources WithTexture(TextureId id, AssetSourceDoc source) =>
-        this with { TextureSources = TextureSources.SetItem(id, source) };
+    public SceneAssetSources WithTexture(TextureId id, AssetRef r) =>
+        this with { TextureSources = TextureSources.SetItem(id, r) };
+
+    public SceneAssetSources WithMaterial(MaterialId id, AssetRef r) =>
+        this with { MaterialSources = MaterialSources.SetItem(id, r) };
 
     public SceneAssetSources WithoutMesh(MeshId id) =>
         this with { MeshSources = MeshSources.Remove(id) };
 
     public SceneAssetSources WithoutTexture(TextureId id) =>
         this with { TextureSources = TextureSources.Remove(id) };
+
+    public SceneAssetSources WithoutMaterial(MaterialId id) =>
+        this with { MaterialSources = MaterialSources.Remove(id) };
 }

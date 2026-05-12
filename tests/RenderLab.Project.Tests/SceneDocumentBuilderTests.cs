@@ -8,128 +8,81 @@ using RenderLab.Ui;
 namespace RenderLab.Project.Tests;
 
 /// <summary>
-/// Round-trip tests for the pure side of M6.2: build a SceneDocument from a
-/// runtime UiModel + asset catalog + recorded sources, and verify the
-/// resulting document references assets by index in stable visit order and
-/// preserves every editable field.
+/// Round-trip tests for the AssetRef-based scene-document builder: feed a
+/// runtime UiModel + SceneAssetSources (runtime-id → AssetRef) and verify
+/// each drawable carries the right AssetRef in the resulting document.
 /// </summary>
 public class SceneDocumentBuilderTests
 {
     [Fact]
-    public void From_emits_meshes_textures_materials_in_visit_order()
+    public void From_emits_drawables_with_AssetRef_for_mesh_and_material()
     {
-        var (catalog, ui, sources) = BuildSampleScene();
+        var (catalog, ui, sources, refs) = BuildSampleScene();
         var result = SceneDocumentBuilder.From(ui, catalog, sources);
 
         Assert.True(result.IsOk);
         var doc = result.Match(ok: d => d, error: _ => null!);
 
-        // Two distinct meshes referenced by drawables → two mesh entries.
-        Assert.Equal(2, doc.Assets.Meshes.Length);
-        Assert.Equal("Sphere", doc.Assets.Meshes[0].Name);
-        Assert.Equal("Cube",   doc.Assets.Meshes[1].Name);
-
-        // One texture referenced by Cube material's albedo map.
-        Assert.Single(doc.Assets.Textures);
-        Assert.Equal("Checker", doc.Assets.Textures[0].Name);
-
-        // Materials in drawable visit order; albedoMap rewritten to texture index 0.
-        Assert.Equal(2, doc.Assets.Materials.Length);
-        Assert.Null(((BlinnPhongMaterialDoc)doc.Assets.Materials[0]).AlbedoMap);
-        Assert.Equal(0, ((BlinnPhongMaterialDoc)doc.Assets.Materials[1]).AlbedoMap);
+        Assert.Equal(2, doc.Drawables.Length);
+        Assert.Equal(refs.SphereMesh, doc.Drawables[0].Mesh);
+        Assert.Equal(refs.CubeMesh,   doc.Drawables[1].Mesh);
+        Assert.Equal(refs.SphereMat,  doc.Drawables[0].Material);
+        Assert.Equal(refs.CubeMat,    doc.Drawables[1].Material);
     }
 
     [Fact]
-    public void From_then_round_trip_preserves_drawables_and_render_config()
+    public void From_then_round_trip_preserves_render_config_and_camera()
     {
-        var (catalog, ui, sources) = BuildSampleScene();
+        var (catalog, ui, sources, _) = BuildSampleScene();
         var built = SceneDocumentBuilder.From(ui, catalog, sources);
-        Assert.True(built.IsOk);
         var doc = built.Match(ok: d => d, error: _ => null!);
 
-        // Drawable indices remap to the document's per-scene asset arrays.
-        Assert.Equal(2, doc.Drawables.Length);
-        Assert.Equal(0, doc.Drawables[0].Mesh);
-        Assert.Equal(1, doc.Drawables[1].Mesh);
-        Assert.Equal(0, doc.Drawables[0].Material);
-        Assert.Equal(1, doc.Drawables[1].Material);
-
-        // RenderConfig string encoding survives.
         Assert.Equal("blinnPhong", doc.RenderConfig.Shading);
         Assert.Equal("final",      doc.RenderConfig.Viz);
         Assert.False(doc.RenderConfig.LightingOnly);
-
-        // Camera FOV converts radians → degrees on save.
         Assert.Equal(60f, doc.Camera.FovDeg, 3);
 
-        // Lights: point + directional with their kind discriminator preserved.
         Assert.Equal(2, doc.Lights.Length);
         Assert.IsType<PointLightDoc>(doc.Lights[0]);
         Assert.IsType<DirectionalLightDoc>(doc.Lights[1]);
     }
 
     [Fact]
-    public void From_fails_with_MissingMeshSource_when_drawable_references_untracked_mesh()
+    public void From_fails_with_MissingMeshSource_when_drawable_mesh_has_no_recorded_ref()
     {
-        var (catalog, ui, _) = BuildSampleScene();
-        // Sources without the meshes that drawables reference → save must
-        // refuse rather than silently dropping the entry.
+        var (catalog, ui, _, _) = BuildSampleScene();
         var emptySources = SceneAssetSources.Empty;
-
         var result = SceneDocumentBuilder.From(ui, catalog, emptySources);
-
         Assert.True(result.IsError);
         var error = result.Match<SceneSaveError?>(_ => null, e => e);
         Assert.IsType<SceneSaveError.MissingMeshSource>(error);
     }
 
-    [Fact]
-    public void From_does_not_serialise_orphan_textures_with_no_material_reference()
-    {
-        // Catalog has a stray texture nobody points to. The builder visits
-        // drawables → materials → albedo maps, so unreferenced textures
-        // never reach the document.
-        var catalog = new FakeCatalog();
-        var meshId = catalog.AddMesh("Sphere");
-        var orphanTex = catalog.AddTexture("Stray");
-        var matId = catalog.AddMaterial(new BlinnPhongMaterial(default, "Mat",
-            new Vector3(1, 1, 1), 0.5f, 32f, TextureId.None));
-
-        var sources = SceneAssetSources.Empty
-            .WithMesh(meshId, new ProceduralSourceDoc("sphere", null))
-            .WithTexture(orphanTex, new ProceduralSourceDoc("checker", null));
-
-        var ui = UiModel.Default with
-        {
-            Drawables = ImmutableArray.Create(new EditableDrawable(
-                Guid.NewGuid(), "Sphere", meshId,
-                new Transform(Vector3.Zero, Quaternion.Identity, 1f), matId)),
-        };
-
-        var result = SceneDocumentBuilder.From(ui, catalog, sources);
-        Assert.True(result.IsOk);
-        var doc = result.Match(ok: d => d, error: _ => null!);
-
-        Assert.Empty(doc.Assets.Textures);
-    }
-
     // ─── Test fixtures ─────────────────────────────────────────────────
 
-    private static (FakeCatalog Catalog, UiModel Ui, SceneAssetSources Sources) BuildSampleScene()
+    private sealed record SampleRefs(AssetRef SphereMesh, AssetRef CubeMesh, AssetRef SphereMat, AssetRef CubeMat);
+
+    private static (FakeCatalog Catalog, UiModel Ui, SceneAssetSources Sources, SampleRefs Refs) BuildSampleScene()
     {
         var catalog = new FakeCatalog();
         var sphereMesh = catalog.AddMesh("Sphere");
         var cubeMesh   = catalog.AddMesh("Cube");
-        var checkerTex = catalog.AddTexture("Checker");
         var sphereMat  = catalog.AddMaterial(new BlinnPhongMaterial(default, "SphereMat",
             new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, TextureId.None));
         var cubeMat    = catalog.AddMaterial(new BlinnPhongMaterial(default, "CubeMat",
-            new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, checkerTex));
+            new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, TextureId.None));
+
+        var refs = new SampleRefs(
+            SphereMesh: new AssetRef(Guid.NewGuid()),
+            CubeMesh:   new AssetRef(Guid.NewGuid()),
+            SphereMat:  new AssetRef(Guid.NewGuid()),
+            CubeMat:    new AssetRef(Guid.NewGuid()));
 
         var sources = SceneAssetSources.Empty
-            .WithMesh(sphereMesh, new ProceduralSourceDoc("sphere", null))
-            .WithMesh(cubeMesh,   new ProceduralSourceDoc("cube", null))
-            .WithTexture(checkerTex, new ProceduralSourceDoc("checker", null));
+            .WithMesh(sphereMesh, refs.SphereMesh)
+            .WithMesh(cubeMesh,   refs.CubeMesh)
+            .WithMaterial(sphereMat, refs.SphereMat)
+            .WithMaterial(cubeMat,   refs.CubeMat);
 
         var ui = UiModel.Default with
         {
@@ -145,14 +98,9 @@ public class SceneDocumentBuilderTests
                     new Transform(new Vector3(2.5f, 0, 0), Quaternion.Identity, 1f), cubeMat)),
             Camera = FreeCameraController.CreateDefault() with { FovRadians = 60f * (MathF.PI / 180f) },
         };
-        return (catalog, ui, sources);
+        return (catalog, ui, sources, refs);
     }
 
-    /// <summary>
-    /// Hand-rolled <see cref="IAssetCatalog"/> stand-in: holds dictionaries
-    /// keyed by id and re-issues sequential ids on each <c>Add*</c>. Lets the
-    /// pure builder be exercised without booting a GPU registry.
-    /// </summary>
     private sealed class FakeCatalog : IAssetCatalog
     {
         private readonly Dictionary<int, MeshAsset> _meshes = new();

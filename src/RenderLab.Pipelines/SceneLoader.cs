@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Numerics;
+using System.Text.Json;
 using RenderLab.Assets;
 using RenderLab.Functional;
 using RenderLab.Gpu.Assets;
@@ -11,14 +12,12 @@ namespace RenderLab.Pipelines;
 
 /// <summary>
 /// Bootstraps a runtime scene from a pure <see cref="SceneDocument"/> by
-/// registering its assets with the supplied <see cref="AssetRegistry"/> and
-/// projecting its drawable seeds into a fresh <see cref="UiModel"/>. Index
-/// references inside the document are mapped to typed registry ids in
-/// dependency order: textures → materials (with rewritten albedo refs) →
-/// meshes → drawables. Also tracks the <see cref="AssetSourceDoc"/> each
-/// registered mesh / texture came from in a <see cref="SceneAssetSources"/>
-/// map, so the inverse <c>SceneDocumentBuilder.From</c> can round-trip the
-/// scene back to disk on save.
+/// resolving every drawable's <see cref="AssetRef"/> against the project's
+/// <see cref="AssetLibrary"/> and registering the resulting CPU-side data
+/// with the <see cref="AssetRegistry"/>. Tracks the
+/// <see cref="AssetRef"/> each registered runtime id came from in a
+/// <see cref="SceneAssetSources"/> map, so the inverse
+/// <c>SceneDocumentBuilder.From</c> can round-trip back to disk on save.
 /// </summary>
 public static class SceneLoader
 {
@@ -27,114 +26,31 @@ public static class SceneLoader
     public static Result<LoadedScene, SceneLoadError> Load(
         string projectRoot,
         SceneDocument doc,
+        AssetLibrary library,
         AssetRegistry assets,
         IProceduralAssetSource procedural)
     {
-        var sources = SceneAssetSources.Empty;
+        var resolver = new Resolver(projectRoot, library, assets, procedural);
 
-        // Textures
-        var textureIds = new TextureId[doc.Assets.Textures.Length];
-        var fileTextureCache = new Dictionary<string, TextureId>(StringComparer.OrdinalIgnoreCase);
-        var fileMeshCache = new Dictionary<string, MeshId>(StringComparer.OrdinalIgnoreCase);
-        for (int i = 0; i < doc.Assets.Textures.Length; i++)
-        {
-            var entry = doc.Assets.Textures[i];
-            switch (entry.Source)
-            {
-                case ProceduralSourceDoc p:
-                {
-                    var tex = procedural.TryCreateTexture(p.Generator, p.Params);
-                    if (tex is null)
-                        return Result.Error<LoadedScene, SceneLoadError>(
-                            new SceneLoadError.UnknownProceduralGenerator("texture", p.Generator));
-                    var r = assets.RegisterTexture(entry.Name, tex.Width, tex.Height, tex.Format, tex.Pixels);
-                    if (r.IsError)
-                        return Result.Error<LoadedScene, SceneLoadError>(
-                            r.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.AssetUploadFailed(entry.Name, e.Message)));
-                    var id = r.Match(ok: x => x, error: _ => default);
-                    textureIds[i] = id;
-                    sources = sources.WithTexture(id, entry.Source);
-                    break;
-                }
-                case FileSourceDoc f:
-                {
-                    var maybe = ResolveFileTexture(projectRoot, f.Path, assets, fileTextureCache, fileMeshCache);
-                    if (maybe.IsError) return Result.Error<LoadedScene, SceneLoadError>(maybe.Match<SceneLoadError>(_ => null!, e => e));
-                    var id = maybe.Match(ok: x => x, error: _ => default);
-                    textureIds[i] = id;
-                    sources = sources.WithTexture(id, entry.Source);
-                    break;
-                }
-            }
-        }
-
-        // Materials (rewriting albedoMap index → TextureId)
-        var materialIds = new MaterialId[doc.Assets.Materials.Length];
-        for (int i = 0; i < doc.Assets.Materials.Length; i++)
-        {
-            switch (doc.Assets.Materials[i])
-            {
-                case BlinnPhongMaterialDoc bp:
-                {
-                    var albedoMap = bp.AlbedoMap is int amIdx ? textureIds[amIdx] : TextureId.None;
-                    var r = assets.RegisterMaterial(bp.Name, id => new BlinnPhongMaterial(
-                        id, bp.Name, ToVec3(bp.Albedo), bp.SpecularStrength, bp.Shininess, albedoMap));
-                    if (r.IsError)
-                        return Result.Error<LoadedScene, SceneLoadError>(
-                            r.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.AssetUploadFailed(bp.Name, e.Message)));
-                    materialIds[i] = r.Match(ok: id => id, error: _ => default);
-                    break;
-                }
-            }
-        }
-
-        // Meshes
-        var meshIds = new MeshId[doc.Assets.Meshes.Length];
-        for (int i = 0; i < doc.Assets.Meshes.Length; i++)
-        {
-            var entry = doc.Assets.Meshes[i];
-            switch (entry.Source)
-            {
-                case ProceduralSourceDoc p:
-                {
-                    var data = procedural.TryCreateMesh(p.Generator, p.Params);
-                    if (data is null)
-                        return Result.Error<LoadedScene, SceneLoadError>(
-                            new SceneLoadError.UnknownProceduralGenerator("mesh", p.Generator));
-                    var r = assets.RegisterMesh(entry.Name, data);
-                    if (r.IsError)
-                        return Result.Error<LoadedScene, SceneLoadError>(
-                            r.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.AssetUploadFailed(entry.Name, e.Message)));
-                    var id = r.Match(ok: x => x, error: _ => default);
-                    meshIds[i] = id;
-                    sources = sources.WithMesh(id, entry.Source);
-                    break;
-                }
-                case FileSourceDoc f:
-                {
-                    var maybe = ResolveFileMesh(projectRoot, f.Path, assets, fileTextureCache, fileMeshCache);
-                    if (maybe.IsError) return Result.Error<LoadedScene, SceneLoadError>(maybe.Match<SceneLoadError>(_ => null!, e => e));
-                    var id = maybe.Match(ok: x => x, error: _ => default);
-                    meshIds[i] = id;
-                    sources = sources.WithMesh(id, entry.Source);
-                    break;
-                }
-            }
-        }
-
-        // Drawables
         var drawables = ImmutableArray.CreateBuilder<EditableDrawable>(doc.Drawables.Length);
         foreach (var d in doc.Drawables)
         {
+            var meshR = resolver.ResolveMesh(d.Mesh);
+            if (meshR.IsError) return Result.Error<LoadedScene, SceneLoadError>(meshR.Match<SceneLoadError>(_ => null!, e => e));
+            var meshId = meshR.Match(ok: x => x, error: _ => default);
+
+            var matR = resolver.ResolveMaterial(d.Material);
+            if (matR.IsError) return Result.Error<LoadedScene, SceneLoadError>(matR.Match<SceneLoadError>(_ => null!, e => e));
+            var matId = matR.Match(ok: x => x, error: _ => default);
+
             drawables.Add(new EditableDrawable(
                 LocalId: Guid.NewGuid(),
                 Name: d.Name,
-                Mesh: meshIds[d.Mesh],
+                Mesh: meshId,
                 Transform: new Transform(ToVec3(d.Transform.Position), ToQuat(d.Transform.Rotation), d.Transform.Scale),
-                Material: materialIds[d.Material]));
+                Material: matId));
         }
 
-        // Lights
         var lights = ImmutableArray.CreateBuilder<Light>(doc.Lights.Length);
         foreach (var l in doc.Lights)
         {
@@ -149,7 +65,6 @@ public static class SceneLoader
             });
         }
 
-        // Render config
         var shading = doc.RenderConfig.Shading.ToLowerInvariant() switch
         {
             "lambertian" => ShadingMode.Lambertian,
@@ -188,79 +103,205 @@ public static class SceneLoader
             LightingOnly = doc.RenderConfig.LightingOnly,
             Viz = viz,
             ClearColor = ToVec3(doc.RenderConfig.ClearColor),
+            Background = (doc.RenderConfig.Background ?? "solid").ToLowerInvariant() switch
+            {
+                "ambientgradient" => BackgroundMode.AmbientGradient,
+                _                 => BackgroundMode.SolidColor,
+            },
         };
-        return Result.Ok<LoadedScene, SceneLoadError>(new LoadedScene(ui, sources));
+        return Result.Ok<LoadedScene, SceneLoadError>(new LoadedScene(ui, resolver.Sources));
     }
 
-    // ─── File-source resolution (cached per-load) ─────────────────────
-
-    private static Result<TextureId, SceneLoadError> ResolveFileTexture(
-        string projectRoot, string path, AssetRegistry assets,
-        Dictionary<string, TextureId> texCache, Dictionary<string, MeshId> meshCache)
+    /// <summary>
+    /// Per-load resolver. Caches registrations so the same <see cref="AssetRef"/>
+    /// resolves to the same runtime id, and shares glTF imports across mesh +
+    /// texture sub-asset references that share a file.
+    /// </summary>
+    private sealed class Resolver
     {
-        var (filePath, _) = SplitSuffix(path);
-        if (texCache.TryGetValue(filePath, out var existing))
-            return Result.Ok<TextureId, SceneLoadError>(existing);
+        private readonly string _projectRoot;
+        private readonly AssetLibrary _library;
+        private readonly AssetRegistry _assets;
+        private readonly IProceduralAssetSource _procedural;
 
-        var resolve = ProjectIO.ResolveProjectPath(projectRoot, filePath);
-        if (resolve.IsError)
-            return Result.Error<TextureId, SceneLoadError>(
-                resolve.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.FileSourceFailed(path, e.Message)));
-        var absolute = resolve.Match(ok: p => p, error: _ => "");
+        private readonly Dictionary<AssetRef, MeshId> _meshCache = new();
+        private readonly Dictionary<AssetRef, TextureId> _textureCache = new();
+        private readonly Dictionary<AssetRef, MaterialId> _materialCache = new();
+        private readonly Dictionary<string, GltfImportResult> _gltfCache = new(StringComparer.OrdinalIgnoreCase);
 
-        var import = assets.ImportGltf(absolute);
-        if (import.IsError)
-            return Result.Error<TextureId, SceneLoadError>(
-                import.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.FileSourceFailed(path, e.Message)));
-        var result = import.Match(ok: r => r, error: _ => null!);
-        if (result.Textures.Length == 0)
-            return Result.Error<TextureId, SceneLoadError>(
-                new SceneLoadError.FileSourceFailed(path, "imported file has no textures"));
+        public SceneAssetSources Sources { get; private set; } = SceneAssetSources.Empty;
 
-        // Cache the first texture under the file path; cache meshes too so the
-        // matching mesh source on the same file reuses the same import.
-        var texId = result.Textures[0];
-        texCache[filePath] = texId;
-        if (result.Meshes.Length > 0) meshCache[filePath] = result.Meshes[0];
-        return Result.Ok<TextureId, SceneLoadError>(texId);
+        public Resolver(string projectRoot, AssetLibrary library, AssetRegistry assets, IProceduralAssetSource procedural)
+        {
+            _projectRoot = projectRoot;
+            _library = library;
+            _assets = assets;
+            _procedural = procedural;
+        }
+
+        public Result<MeshId, SceneLoadError> ResolveMesh(AssetRef r)
+        {
+            if (_meshCache.TryGetValue(r, out var cached))
+                return Result.Ok<MeshId, SceneLoadError>(cached);
+            var entry = _library.Find(r.Guid);
+            if (entry is null)
+                return Result.Error<MeshId, SceneLoadError>(
+                    new SceneLoadError.FileSourceFailed(r.ToString(), $"no library entry for guid {r.Guid:D}"));
+            switch (entry)
+            {
+                case ProceduralAssetEntry p when p.Kind == AssetKind.Mesh:
+                {
+                    var data = _procedural.TryCreateMesh(p.Generator, ParamsToDict(p.Params));
+                    if (data is null)
+                        return Result.Error<MeshId, SceneLoadError>(
+                            new SceneLoadError.UnknownProceduralGenerator("mesh", p.Generator));
+                    var reg = _assets.RegisterMesh(p.Name, data);
+                    if (reg.IsError)
+                        return Result.Error<MeshId, SceneLoadError>(
+                            new SceneLoadError.AssetUploadFailed(p.Name, reg.Match<AssetError>(_ => null!, e => e).Message));
+                    var id = reg.Match(ok: x => x, error: _ => default);
+                    _meshCache[r] = id;
+                    Sources = Sources.WithMesh(id, r);
+                    return Result.Ok<MeshId, SceneLoadError>(id);
+                }
+                case FileAssetEntry f when f.Kind == AssetKind.Mesh:
+                {
+                    var import = LoadGltfFor(f.ProjectRelativePath);
+                    if (import.IsError) return Result.Error<MeshId, SceneLoadError>(import.Match<SceneLoadError>(_ => null!, e => e));
+                    var ok = import.Match(ok: x => x, error: _ => null!);
+                    var subIndex = ParseSubIndex(r.Sub, "mesh");
+                    if (subIndex >= ok.Meshes.Length)
+                        return Result.Error<MeshId, SceneLoadError>(
+                            new SceneLoadError.FileSourceFailed(f.ProjectRelativePath, $"mesh #{subIndex} not in import"));
+                    var id = ok.Meshes[subIndex];
+                    _meshCache[r] = id;
+                    Sources = Sources.WithMesh(id, r);
+                    return Result.Ok<MeshId, SceneLoadError>(id);
+                }
+                default:
+                    return Result.Error<MeshId, SceneLoadError>(
+                        new SceneLoadError.FileSourceFailed(r.ToString(), $"entry is not a Mesh ({entry.Kind})"));
+            }
+        }
+
+        public Result<TextureId, SceneLoadError> ResolveTexture(AssetRef r)
+        {
+            if (_textureCache.TryGetValue(r, out var cached))
+                return Result.Ok<TextureId, SceneLoadError>(cached);
+            var entry = _library.Find(r.Guid);
+            if (entry is null)
+                return Result.Error<TextureId, SceneLoadError>(
+                    new SceneLoadError.FileSourceFailed(r.ToString(), $"no library entry for guid {r.Guid:D}"));
+            switch (entry)
+            {
+                case ProceduralAssetEntry p when p.Kind == AssetKind.Texture:
+                {
+                    var tex = _procedural.TryCreateTexture(p.Generator, ParamsToDict(p.Params));
+                    if (tex is null)
+                        return Result.Error<TextureId, SceneLoadError>(
+                            new SceneLoadError.UnknownProceduralGenerator("texture", p.Generator));
+                    var reg = _assets.RegisterTexture(p.Name, tex.Width, tex.Height, tex.Format, tex.Pixels);
+                    if (reg.IsError)
+                        return Result.Error<TextureId, SceneLoadError>(
+                            new SceneLoadError.AssetUploadFailed(p.Name, reg.Match<AssetError>(_ => null!, e => e).Message));
+                    var id = reg.Match(ok: x => x, error: _ => default);
+                    _textureCache[r] = id;
+                    Sources = Sources.WithTexture(id, r);
+                    return Result.Ok<TextureId, SceneLoadError>(id);
+                }
+                case FileAssetEntry f when f.Kind == AssetKind.Texture || f.Kind == AssetKind.Mesh:
+                {
+                    var import = LoadGltfFor(f.ProjectRelativePath);
+                    if (import.IsError) return Result.Error<TextureId, SceneLoadError>(import.Match<SceneLoadError>(_ => null!, e => e));
+                    var ok = import.Match(ok: x => x, error: _ => null!);
+                    var subIndex = ParseSubIndex(r.Sub, "image");
+                    if (subIndex >= ok.Textures.Length)
+                        return Result.Error<TextureId, SceneLoadError>(
+                            new SceneLoadError.FileSourceFailed(f.ProjectRelativePath, $"texture #{subIndex} not in import"));
+                    var id = ok.Textures[subIndex];
+                    _textureCache[r] = id;
+                    Sources = Sources.WithTexture(id, r);
+                    return Result.Ok<TextureId, SceneLoadError>(id);
+                }
+                default:
+                    return Result.Error<TextureId, SceneLoadError>(
+                        new SceneLoadError.FileSourceFailed(r.ToString(), $"entry is not a Texture ({entry.Kind})"));
+            }
+        }
+
+        public Result<MaterialId, SceneLoadError> ResolveMaterial(AssetRef r)
+        {
+            if (_materialCache.TryGetValue(r, out var cached))
+                return Result.Ok<MaterialId, SceneLoadError>(cached);
+            var entry = _library.Find(r.Guid);
+            if (entry is null)
+                return Result.Error<MaterialId, SceneLoadError>(
+                    new SceneLoadError.FileSourceFailed(r.ToString(), $"no library entry for guid {r.Guid:D}"));
+            if (entry is not MaterialAssetEntry m)
+                return Result.Error<MaterialId, SceneLoadError>(
+                    new SceneLoadError.FileSourceFailed(r.ToString(), $"entry is not a Material ({entry.Kind})"));
+
+            var albedoMap = TextureId.None;
+            if (m.AlbedoTex is AssetRef tr)
+            {
+                var tres = ResolveTexture(tr);
+                if (tres.IsError) return Result.Error<MaterialId, SceneLoadError>(tres.Match<SceneLoadError>(_ => null!, e => e));
+                albedoMap = tres.Match(ok: x => x, error: _ => default);
+            }
+
+            var albedo = m.Params.Albedo;
+            var reg = _assets.RegisterMaterial(m.Name, id => new BlinnPhongMaterial(
+                id, m.Name,
+                new Vector3(albedo[0], albedo[1], albedo[2]),
+                m.Params.SpecularStrength,
+                m.Params.Shininess,
+                albedoMap));
+            if (reg.IsError)
+                return Result.Error<MaterialId, SceneLoadError>(
+                    new SceneLoadError.AssetUploadFailed(m.Name, reg.Match<AssetError>(_ => null!, e => e).Message));
+            var matId = reg.Match(ok: x => x, error: _ => default);
+            _materialCache[r] = matId;
+            Sources = Sources.WithMaterial(matId, r);
+            return Result.Ok<MaterialId, SceneLoadError>(matId);
+        }
+
+        private Result<GltfImportResult, SceneLoadError> LoadGltfFor(string projectRelativePath)
+        {
+            if (_gltfCache.TryGetValue(projectRelativePath, out var cached))
+                return Result.Ok<GltfImportResult, SceneLoadError>(cached);
+            var resolved = ProjectIO.ResolveProjectPath(_projectRoot, projectRelativePath);
+            if (resolved.IsError)
+                return Result.Error<GltfImportResult, SceneLoadError>(
+                    new SceneLoadError.FileSourceFailed(projectRelativePath, resolved.Match<ProjectError>(_ => null!, e => e).Message));
+            var absolute = resolved.Match(ok: p => p, error: _ => "");
+            var import = _assets.ImportGltf(absolute);
+            if (import.IsError)
+                return Result.Error<GltfImportResult, SceneLoadError>(
+                    new SceneLoadError.FileSourceFailed(projectRelativePath, import.Match<AssetError>(_ => null!, e => e).Message));
+            var ok = import.Match(ok: r => r, error: _ => null!);
+            _gltfCache[projectRelativePath] = ok;
+            return Result.Ok<GltfImportResult, SceneLoadError>(ok);
+        }
+
+        private static int ParseSubIndex(string? sub, string prefix)
+        {
+            if (string.IsNullOrEmpty(sub)) return 0;
+            // Accept "mesh0", "mesh:0", or bare "0".
+            var s = sub.StartsWith(prefix, StringComparison.OrdinalIgnoreCase)
+                ? sub[prefix.Length..].TrimStart(':')
+                : sub;
+            return int.TryParse(s, out var n) ? n : 0;
+        }
+
+        private static IReadOnlyDictionary<string, JsonElement>? ParamsToDict(JsonElement? p)
+        {
+            if (p is not JsonElement e || e.ValueKind != JsonValueKind.Object) return null;
+            var dict = new Dictionary<string, JsonElement>();
+            foreach (var prop in e.EnumerateObject())
+                dict[prop.Name] = prop.Value.Clone();
+            return dict;
+        }
     }
-
-    private static Result<MeshId, SceneLoadError> ResolveFileMesh(
-        string projectRoot, string path, AssetRegistry assets,
-        Dictionary<string, TextureId> texCache, Dictionary<string, MeshId> meshCache)
-    {
-        var (filePath, _) = SplitSuffix(path);
-        if (meshCache.TryGetValue(filePath, out var existing))
-            return Result.Ok<MeshId, SceneLoadError>(existing);
-
-        var resolve = ProjectIO.ResolveProjectPath(projectRoot, filePath);
-        if (resolve.IsError)
-            return Result.Error<MeshId, SceneLoadError>(
-                resolve.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.FileSourceFailed(path, e.Message)));
-        var absolute = resolve.Match(ok: p => p, error: _ => "");
-
-        var import = assets.ImportGltf(absolute);
-        if (import.IsError)
-            return Result.Error<MeshId, SceneLoadError>(
-                import.Match<SceneLoadError>(_ => null!, e => new SceneLoadError.FileSourceFailed(path, e.Message)));
-        var result = import.Match(ok: r => r, error: _ => null!);
-        if (result.Meshes.Length == 0)
-            return Result.Error<MeshId, SceneLoadError>(
-                new SceneLoadError.FileSourceFailed(path, "imported file has no meshes"));
-
-        var meshId = result.Meshes[0];
-        meshCache[filePath] = meshId;
-        if (result.Textures.Length > 0) texCache[filePath] = result.Textures[0];
-        return Result.Ok<MeshId, SceneLoadError>(meshId);
-    }
-
-    private static (string Path, string? Suffix) SplitSuffix(string raw)
-    {
-        var hash = raw.IndexOf('#');
-        return hash < 0 ? (raw, null) : (raw[..hash], raw[(hash + 1)..]);
-    }
-
-    // ─── Vector conversions ───────────────────────────────────────────
 
     private static Vector3 ToVec3(float[] a) =>
         a.Length >= 3 ? new Vector3(a[0], a[1], a[2]) : Vector3.Zero;

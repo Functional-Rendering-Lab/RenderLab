@@ -21,7 +21,7 @@ using Scene = RenderLab.Scene.Scene;
 /// </summary>
 public static class UiView
 {
-    public static UiViewResult Draw(AppUiModel app, UiModel model, Scene scene, IAssetCatalog catalog, FrameStats stats, ProjectAssetIndex projectIndex)
+    public static UiViewResult Draw(AppUiModel app, UiModel model, Scene scene, IAssetCatalog catalog, FrameStats stats, ProjectAssetIndex projectIndex, AssetLibrary library)
     {
         var appMessages = new List<AppUiMsg>();
         var messages = new List<UiMsg>();
@@ -34,10 +34,10 @@ public static class UiView
         if (app.IsPanelVisible(PanelId.GpuTimings))    DrawGpuTimingsPanel(stats);
         if (app.IsPanelVisible(PanelId.Visualization)) DrawVisualizationPanel(model.Viz, dispatch);
         if (app.IsPanelVisible(PanelId.Camera))        FreeCameraDebugMenu.Draw(model.Camera, dispatch);
-        if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Lights, model.Ambient, model.Shading, model.LightingOnly, model.ClearColor, dispatch);
+        if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Lights, model.Ambient, model.Shading, model.LightingOnly, model.ClearColor, model.Background, dispatch);
         if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
         if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(model, scene, catalog, dispatch);
-        if (app.IsPanelVisible(PanelId.AssetBrowser))  AssetBrowserPanel.Draw(model, catalog, dispatchApp);
+        if (app.IsPanelVisible(PanelId.AssetBrowser))  AssetBrowserPanel.Draw(library, dispatchApp);
         if (app.IsPanelVisible(PanelId.Project))       ProjectPanel.Draw(projectIndex, dispatchApp);
 
         var io = ImGui.GetIO();

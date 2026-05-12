@@ -15,17 +15,23 @@ public enum ProjectFileKind
     Json,
     Shader,
     Text,
+    Material,
+    Procedural,
     Other,
 }
 
 /// <summary>One file inside the project tree.</summary>
+/// <param name="MetaGuid">When the file has a sibling <c>.meta</c> sidecar,
+/// the GUID parsed from it. <c>null</c> for files that are not importable
+/// kinds (e.g. shaders, plain text, the manifest).</param>
 public sealed record ProjectFileEntry(
     string Name,
     string ProjectRelativePath,
     string AbsolutePath,
     ProjectFileKind Kind,
     long SizeBytes,
-    DateTime LastWriteUtc);
+    DateTime LastWriteUtc,
+    System.Guid? MetaGuid = null);
 
 /// <summary>One folder inside the project tree. Children are pre-sorted.</summary>
 public sealed record ProjectFolderEntry(

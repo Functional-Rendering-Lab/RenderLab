@@ -12,6 +12,8 @@ public abstract record SceneSaveError(string Message)
         : SceneSaveError($"mesh '{Name}' (id #{Id.Value}) has no recorded source — was it imported via a path the loader didn't track?");
     public sealed record MissingTextureSource(TextureId Id, string Name)
         : SceneSaveError($"texture '{Name}' (id #{Id.Value}) has no recorded source");
+    public sealed record MissingMaterialSource(MaterialId Id, string Name)
+        : SceneSaveError($"material '{Name}' (id #{Id.Value}) has no recorded source");
     public sealed record UnknownAsset(string Kind, int Id)
         : SceneSaveError($"unknown {Kind} id #{Id} (catalog lost the registration?)");
     public sealed record UnsupportedMaterialKind(string TypeName)

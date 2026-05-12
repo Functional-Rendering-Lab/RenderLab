@@ -5,8 +5,8 @@ namespace RenderLab.Project.Tests;
 
 public class SceneRoundTripTests
 {
-    private static SceneDocument SampleScene() => new(
-        Version: 1,
+    private static SceneDocument SampleScene(Guid meshGuid, Guid matGuid) => new(
+        Version: 2,
         Camera: new CameraDoc([0, 1, 5], 0f, 0f, 60f),
         Ambient: new AmbientDoc([0.5f, 0.6f, 0.8f], [0.2f, 0.2f, 0.2f]),
         Lights:
@@ -15,25 +15,12 @@ public class SceneRoundTripTests
             new DirectionalLightDoc([0, -1, 0], [1, 1, 1], 1f),
         ],
         RenderConfig: new RenderConfigDoc("blinnPhong", false, "final", [0.05f, 0.05f, 0.06f]),
-        Assets: new SceneAssetsDoc(
-            Meshes:
-            [
-                new MeshEntryDoc("Sphere", new ProceduralSourceDoc("sphere", new() { ["stacks"] = JsonDocument.Parse("32").RootElement })),
-                new MeshEntryDoc("Box", new FileSourceDoc("assets/box.glb#mesh0")),
-            ],
-            Textures:
-            [
-                new TextureEntryDoc("BoxAlbedo", new FileSourceDoc("assets/box.glb#image0")),
-            ],
-            Materials:
-            [
-                new BlinnPhongMaterialDoc("Sphere", [0.6f, 0.6f, 0.6f], 0.5f, 32f, AlbedoMap: null),
-                new BlinnPhongMaterialDoc("Box", [1, 1, 1], 0.5f, 32f, AlbedoMap: 0),
-            ]),
         Drawables:
         [
-            new DrawableDoc("Sphere", Mesh: 0, Material: 0, new TransformDoc([0, 0, 0], [0, 0, 0, 1], 1f)),
-            new DrawableDoc("Box",    Mesh: 1, Material: 1, new TransformDoc([2.5f, 0, 0], [0, 0, 0, 1], 1f)),
+            new DrawableDoc("Sphere",
+                Mesh: new AssetRef(meshGuid),
+                Material: new AssetRef(matGuid),
+                new TransformDoc([0, 0, 0], [0, 0, 0, 1], 1f)),
         ]);
 
     [Fact]
@@ -43,7 +30,9 @@ public class SceneRoundTripTests
         try
         {
             ProjectIO.WriteManifest(temp, new ProjectManifest(1, "x", "deferred", "scenes/s.scene.json", ["scenes/s.scene.json"]));
-            var write = ProjectIO.WriteScene(temp, "scenes/s.scene.json", SampleScene());
+            var mesh = Guid.NewGuid();
+            var mat = Guid.NewGuid();
+            var write = ProjectIO.WriteScene(temp, "scenes/s.scene.json", SampleScene(mesh, mat));
             Assert.True(write.IsOk);
 
             var read = ProjectIO.ReadScene(temp, "scenes/s.scene.json");
@@ -53,56 +42,62 @@ public class SceneRoundTripTests
             Assert.Equal(2, doc.Lights.Length);
             Assert.IsType<PointLightDoc>(doc.Lights[0]);
             Assert.IsType<DirectionalLightDoc>(doc.Lights[1]);
-            Assert.Equal(2, doc.Assets.Meshes.Length);
-            Assert.IsType<ProceduralSourceDoc>(doc.Assets.Meshes[0].Source);
-            Assert.IsType<FileSourceDoc>(doc.Assets.Meshes[1].Source);
-            Assert.Equal(2, doc.Assets.Materials.Length);
-            Assert.Equal(0, ((BlinnPhongMaterialDoc)doc.Assets.Materials[1]).AlbedoMap);
-            Assert.Null(((BlinnPhongMaterialDoc)doc.Assets.Materials[0]).AlbedoMap);
+            Assert.Single(doc.Drawables);
+            Assert.Equal(mesh, doc.Drawables[0].Mesh.Guid);
+            Assert.Equal(mat, doc.Drawables[0].Material.Guid);
         }
         finally { Directory.Delete(temp, recursive: true); }
     }
 
     [Fact]
-    public void ReadScene_rejects_dangling_drawable_mesh_index()
+    public void ReadScene_upgrades_legacy_scene_files_in_place()
     {
         var temp = Directory.CreateTempSubdirectory("renderlab-test-").FullName;
         try
         {
             ProjectIO.WriteManifest(temp, new ProjectManifest(1, "x", "deferred", "scenes/s.scene.json", ["scenes/s.scene.json"]));
-
-            var bad = SampleScene() with
+            // Drop a v1-shape JSON file directly so we exercise the
+            // upgrade path on read.
+            const string legacyJson = """
             {
-                Drawables = [new DrawableDoc("X", Mesh: 99, Material: 0, new TransformDoc([0, 0, 0], [0, 0, 0, 1], 1f))],
-            };
-            ProjectIO.WriteScene(temp, "scenes/s.scene.json", bad);
-            var read = ProjectIO.ReadScene(temp, "scenes/s.scene.json");
-            Assert.True(read.IsError);
-            Assert.IsType<ProjectError.DanglingIndex>(read.Match<ProjectError?>(_ => null, e => e));
-        }
-        finally { Directory.Delete(temp, recursive: true); }
-    }
+              "version": 1,
+              "camera":  { "position": [0,1,5], "yawDeg": 0, "pitchDeg": 0, "fovDeg": 60 },
+              "ambient": { "sky": [0.4,0.5,0.7], "ground": [0.2,0.2,0.2] },
+              "lights":  [ { "kind": "point", "position": [2,2,2], "color": [1,1,1], "intensity": 5 } ],
+              "renderConfig": { "shading": "blinnPhong", "lightingOnly": false, "viz": "final", "clearColor": [0,0,0] },
+              "assets": {
+                "meshes":    [ { "name": "Sphere", "source": { "kind": "procedural", "generator": "sphere" } } ],
+                "textures":  [],
+                "materials": [ { "kind": "blinnPhong", "name": "Sphere", "albedo": [0.6,0.6,0.6], "specularStrength": 0.5, "shininess": 32, "albedoMap": null } ]
+              },
+              "drawables": [
+                { "name": "Sphere", "mesh": 0, "material": 0, "transform": { "position": [0,0,0], "rotation": [0,0,0,1], "scale": 1 } }
+              ]
+            }
+            """;
+            var scenePath = Path.Combine(temp, "scenes", "s.scene.json");
+            Directory.CreateDirectory(Path.GetDirectoryName(scenePath)!);
+            File.WriteAllText(scenePath, legacyJson);
 
-    [Fact]
-    public void ReadScene_rejects_dangling_albedoMap_index()
-    {
-        var temp = Directory.CreateTempSubdirectory("renderlab-test-").FullName;
-        try
-        {
-            ProjectIO.WriteManifest(temp, new ProjectManifest(1, "x", "deferred", "scenes/s.scene.json", ["scenes/s.scene.json"]));
-
-            var bad = SampleScene() with
-            {
-                Assets = SampleScene().Assets with
-                {
-                    Materials = [new BlinnPhongMaterialDoc("X", [1, 1, 1], 0.5f, 32f, AlbedoMap: 99)],
-                },
-                Drawables = [],
-            };
-            ProjectIO.WriteScene(temp, "scenes/s.scene.json", bad);
             var read = ProjectIO.ReadScene(temp, "scenes/s.scene.json");
-            Assert.True(read.IsError);
-            Assert.IsType<ProjectError.DanglingIndex>(read.Match<ProjectError?>(_ => null, e => e));
+            Assert.True(read.IsOk);
+            var doc = read.Match(ok: d => d, error: _ => null!);
+
+            // Upgraded shape: drawables hold AssetRefs.
+            Assert.Single(doc.Drawables);
+            Assert.NotEqual(Guid.Empty, doc.Drawables[0].Mesh.Guid);
+            Assert.NotEqual(Guid.Empty, doc.Drawables[0].Material.Guid);
+
+            // Upgrader wrote the new files
+            Assert.True(Directory.Exists(Path.Combine(temp, "assets", "proc")));
+            Assert.True(Directory.Exists(Path.Combine(temp, "assets", "materials")));
+
+            // Reading again does not re-upgrade — the on-disk file is now v2.
+            var read2 = ProjectIO.ReadScene(temp, "scenes/s.scene.json");
+            Assert.True(read2.IsOk);
+            var doc2 = read2.Match(ok: d => d, error: _ => null!);
+            Assert.Equal(doc.Drawables[0].Mesh.Guid, doc2.Drawables[0].Mesh.Guid);
+            Assert.Equal(doc.Drawables[0].Material.Guid, doc2.Drawables[0].Material.Guid);
         }
         finally { Directory.Delete(temp, recursive: true); }
     }

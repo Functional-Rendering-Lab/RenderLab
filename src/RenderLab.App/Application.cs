@@ -53,6 +53,7 @@ public sealed class Application : IDisposable
     string activeScenePath = "";
     SceneAssetSources sources = SceneAssetSources.Empty;
     ProjectAssetIndex projectIndex = ProjectAssetIndex.Empty("");
+    AssetLibrary assetLibrary = AssetLibrary.Empty;
 
     AppUiModel app = AppUiModel.Default;
     UiModel ui = UiModel.Default;
@@ -157,6 +158,7 @@ public sealed class Application : IDisposable
         }
 
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
 
         if (pipeline.ConsumesScenes)
         {
@@ -184,6 +186,12 @@ public sealed class Application : IDisposable
                 $"failed to read scene '{projectRelative}': {sceneRes.Match<ProjectError>(_ => null!, e => e).Message}");
         var doc = sceneRes.Match(ok: d => d, error: _ => null!);
 
+        // ReadScene may have upgraded a legacy scene and written new asset
+        // files (.proc.meta, .mat.json) — refresh the library so the loader
+        // can resolve their AssetRefs.
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+
         // Wipe registry + pipeline asset caches so the loader registers
         // fresh ids. Skip on first call (assets registry is fresh).
         if (!string.IsNullOrEmpty(activeScenePath))
@@ -193,7 +201,7 @@ public sealed class Application : IDisposable
             assets.ResetForSceneSwap();
         }
 
-        var loaded = SceneLoader.Load(projectRoot, doc, assets, _procedural);
+        var loaded = SceneLoader.Load(projectRoot, doc, assetLibrary, assets, _procedural);
         if (loaded.IsError)
             return Result.Error<Unit, string>(
                 $"failed to load scene: {loaded.Match<SceneLoadError>(_ => null!, e => e).Message}");
@@ -203,6 +211,7 @@ public sealed class Application : IDisposable
         activeScenePath = projectRelative;
         app = app.WithActiveScene(projectRelative);
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
         return Result.Ok<Unit, string>(Unit.Value);
     }
 
@@ -302,7 +311,7 @@ public sealed class Application : IDisposable
             if (pipeline.ConsumesScenes)
             {
                 var stats = pipeline.GetFrameStats(dt);
-                var view = UiView.Draw(app, ui, scene!, assets, stats, projectIndex);
+                var view = UiView.Draw(app, ui, scene!, assets, stats, projectIndex, assetLibrary);
                 ApplyViewMessages(view, prevUi);
                 pipeline.DrawDebugUi();
                 // ApplyViewMessages may have reloaded the scene (registry
@@ -408,6 +417,7 @@ public sealed class Application : IDisposable
                 break;
             case AppUiMsg.RequestRescanProject:
                 projectIndex = ProjectAssetScanner.Scan(projectRoot);
+                assetLibrary = AssetLibraryScanner.Scan(projectIndex);
                 break;
             case AppUiMsg.RequestRevealInExplorer rv:
                 PlatformDialogs.RevealInExplorer(rv.AbsolutePath);
@@ -431,6 +441,8 @@ public sealed class Application : IDisposable
                 if (r.Meshes.Length > 0 || r.Textures.Length > 0 || r.Materials.Length > 0)
                     app = app with { SceneDirty = true };
                 projectIndex = ProjectAssetScanner.Scan(projectRoot);
+                assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
                 return r.Drawables.Select(d => new UiMsg.AddDrawable(
                     d.Name, d.Mesh,
                     new Transform(d.Position, d.Rotation, d.Scale),
@@ -444,21 +456,28 @@ public sealed class Application : IDisposable
     }
 
     /// <summary>
-    /// Track each freshly-registered import as a <see cref="FileSourceDoc"/>
-    /// rooted at the project — required so the next save can round-trip the
-    /// asset back into the scene file. Files outside the project root are
-    /// recorded by absolute path; the save will refuse them with a clear
-    /// error rather than silently dropping the reference.
+    /// Track each freshly-registered import as an <see cref="AssetRef"/> so
+    /// the next save can round-trip its drawables. Imports outside the
+    /// project root have no stable id and are skipped — save will refuse
+    /// drawables that reference them.
     /// </summary>
     void RecordImportSources(string absolutePath, GltfImportResult r)
     {
-        var rel = ToProjectRelativeOrAbsolute(absolutePath);
-        // The current SceneLoader file-source convention is "path resolves to
-        // first mesh / first texture in the file"; record that convention.
+        if (!IsUnderProjectRoot(absolutePath)) return;
+        var meta = AssetMetaIO.ReadOrCreate(absolutePath, AssetKind.Mesh);
+        var guid = meta.Guid;
         for (int i = 0; i < r.Meshes.Length; i++)
-            sources = sources.WithMesh(r.Meshes[i], new FileSourceDoc(i == 0 ? rel : $"{rel}#mesh{i}"));
+            sources = sources.WithMesh(r.Meshes[i], new AssetRef(guid, $"mesh:{i}"));
         for (int i = 0; i < r.Textures.Length; i++)
-            sources = sources.WithTexture(r.Textures[i], new FileSourceDoc(i == 0 ? rel : $"{rel}#image{i}"));
+            sources = sources.WithTexture(r.Textures[i], new AssetRef(guid, $"image:{i}"));
+    }
+
+    bool IsUnderProjectRoot(string absolute)
+    {
+        var fullRoot = Path.GetFullPath(projectRoot);
+        var withSep = fullRoot.EndsWith(Path.DirectorySeparatorChar) ? fullRoot : fullRoot + Path.DirectorySeparatorChar;
+        var fullAbs = Path.GetFullPath(absolute);
+        return fullAbs.StartsWith(withSep, StringComparison.OrdinalIgnoreCase);
     }
 
     string ToProjectRelativeOrAbsolute(string absolute)
@@ -643,10 +662,10 @@ public sealed class Application : IDisposable
     }
 
     /// <summary>
-    /// Writes a minimal <c>project.json</c> + empty <c>assets/</c> +
-    /// <c>scenes/main.scene.json</c> with one procedural sphere so the
-    /// new project opens to something visible. Refuses to overwrite if
-    /// the folder already contains a manifest.
+    /// Writes a minimal <c>project.json</c>, a procedural sphere mesh, a
+    /// default Blinn-Phong material, and a scene that references both via
+    /// stable <see cref="AssetRef"/>s. Refuses to overwrite if the folder
+    /// already contains a manifest.
     /// </summary>
     static void CreateSkeletonProject(string folder)
     {
@@ -666,20 +685,37 @@ public sealed class Application : IDisposable
             Scenes: [defaultScene]);
         ProjectIO.WriteManifest(folder, manifest);
 
-        // A starter scene the loader can open: one procedural sphere, a
-        // single point light, default ambient.
-        var doc = new SceneDocument(
+        // Procedural sphere mesh, written as a .proc.meta self-describing
+        // asset so the library scanner picks it up.
+        var meshGuid = Guid.NewGuid();
+        var procPath = Path.Combine(folder, "assets", "proc", "sphere_Sphere.proc.meta");
+        ProceduralAssetIO.Write(procPath, new ProceduralFileDoc(
             Version: 1,
+            Guid: meshGuid,
+            Kind: AssetKind.Mesh,
+            Name: "Sphere",
+            Generator: "sphere",
+            Params: null));
+
+        // File-backed default material with its .meta sidecar.
+        var matPath = Path.Combine(folder, "assets", "materials", "Sphere.mat.json");
+        AssetLibraryScanner.WriteMaterial(matPath, new MaterialFileDoc(
+            Version: 1,
+            Name: "Sphere",
+            Params: new MaterialParamsDoc([0.6f, 0.6f, 0.6f], 0.5f, 32f),
+            AlbedoTex: null));
+        var matMeta = AssetMetaIO.ReadOrCreate(matPath, AssetKind.Material);
+
+        var doc = new SceneDocument(
+            Version: 2,
             Camera: new CameraDoc([2.1f, 1.85f, 2.1f], 45f, -31.5f, 45f),
             Ambient: new AmbientDoc([0.4f, 0.5f, 0.7f], [0.18f, 0.16f, 0.14f]),
             Lights: [new PointLightDoc([2f, 3f, 2f], [1f, 0.95f, 0.9f], 5f)],
             RenderConfig: new RenderConfigDoc("blinnPhong", false, "final", [0f, 0f, 0f]),
-            Assets: new SceneAssetsDoc(
-                Meshes: [new MeshEntryDoc("Sphere", new ProceduralSourceDoc("sphere", null))],
-                Textures: [],
-                Materials: [new BlinnPhongMaterialDoc("Sphere", [0.6f, 0.6f, 0.6f], 0.5f, 32f, AlbedoMap: null)]),
-            Drawables: [new DrawableDoc("Sphere", Mesh: 0, Material: 0,
-                new TransformDoc([0f, 0f, 0f], [0f, 0f, 0f, 1f], 1f))]);
+            Drawables: [new DrawableDoc("Sphere",
+                Mesh: new AssetRef(meshGuid),
+                Material: new AssetRef(matMeta.Guid),
+                Transform: new TransformDoc([0f, 0f, 0f], [0f, 0f, 0f, 1f], 1f))]);
         ProjectIO.WriteScene(folder, defaultScene, doc);
     }
 
