@@ -24,6 +24,26 @@ public abstract record AppUiMsg
     public sealed record RequestRemoveMaterial(RenderLab.Assets.MaterialId Id) : AppUiMsg;
 
     /// <summary>
+    /// Delete a project-level asset by its stable GUID. The shell looks
+    /// up the library entry, refuses if anything still references it
+    /// (live drawables for meshes/materials; library materials for
+    /// textures), deletes the source + sidecar from disk, and removes
+    /// any live runtime registration. Used by the Asset Browser's
+    /// per-row Delete button.
+    /// </summary>
+    public sealed record RequestDeleteAsset(System.Guid Guid) : AppUiMsg;
+
+    /// <summary>
+    /// Rename a project-level asset by its stable GUID. <paramref name="NewName"/>
+    /// is the new file basename (without extension); the shell preserves
+    /// the original extension, moves the source + sidecar on disk, and
+    /// — for materials and procedural assets — rewrites the embedded
+    /// <c>name</c> field. The GUID is unchanged so existing scenes keep
+    /// resolving against the renamed entry.
+    /// </summary>
+    public sealed record RequestRenameAsset(System.Guid Guid, string NewName) : AppUiMsg;
+
+    /// <summary>
     /// Persist edited Blinn-Phong material parameters back to the
     /// <c>.mat.json</c> sidecar identified by <paramref name="Guid"/>, then
     /// — if the material is currently registered — apply the same change to

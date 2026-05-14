@@ -8,10 +8,10 @@ public enum PanelId
 {
     GpuTimings,
     Visualization,
-    Camera,
     Lighting,
     RenderGraph,
     Scene,
     AssetBrowser,
     Project,
+    Inspector,
 }

@@ -84,11 +84,10 @@ public interface IPipeline : IDisposable
         new((float)deltaSeconds, Array.Empty<string>(), Array.Empty<double>(), ImmutableArray<ResolvedPass>.Empty);
 
     /// <summary>
-    /// Drop any caches keyed on registered asset ids ahead of a scene
-    /// swap. The Application calls this after <c>vkDeviceWaitIdle</c>
-    /// and before <see cref="AssetRegistry.ResetForSceneSwap"/>, so
-    /// pipelines must not touch the registry from here. Default no-op
-    /// for pipelines that don't cache by asset id.
+    /// Drop any caches keyed on registered asset ids. Reserved hook for
+    /// callers that need to force-invalidate pipeline-internal id-keyed
+    /// state; the Application no longer invokes it on scene swap now
+    /// that the registry persists ids across scenes. Default no-op.
     /// </summary>
     void ResetSceneState() { }
 }

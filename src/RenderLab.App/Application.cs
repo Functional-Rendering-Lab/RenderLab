@@ -44,6 +44,7 @@ public sealed class Application : IDisposable
     Vk vk = null!;
     GpuState gpu = null!;
     AssetRegistry assets = null!;
+    SceneAssetResolver resolver = null!;
     VulkanImGui imgui = null!;
     RenderPass overlayRenderPass;
     Framebuffer[] overlayFramebuffers = [];
@@ -127,7 +128,11 @@ public sealed class Application : IDisposable
         {
             vk.DeviceWaitIdle(gpu.Device);
             pipeline.Dispose();
+            // Project switch: wipe the registry and resolver caches so
+            // the next project starts from built-ins. Scene-to-scene
+            // swap inside a project no longer goes through this path.
             assets.ResetForSceneSwap();
+            resolver.Clear();
             window.SetTitle($"RenderLab — {newManifest.Name}");
         }
 
@@ -159,6 +164,7 @@ public sealed class Application : IDisposable
 
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
         assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
 
         if (pipeline.ConsumesScenes)
         {
@@ -173,10 +179,13 @@ public sealed class Application : IDisposable
 
     /// <summary>
     /// Replace the active scene with <paramref name="projectRelative"/>'s
-    /// content. Idle the GPU, reset the registry to built-ins, ask the
-    /// pipeline to drop scene-keyed caches, then reload — so re-running
-    /// procedural generators against fresh ids gives the new scene a clean
-    /// slate.
+    /// content. The registry and resolver caches persist across scene
+    /// swaps inside a project — meshes, textures, and materials already
+    /// uploaded by previous scenes are reused by GUID, not re-uploaded.
+    /// Loading a scene therefore reduces to (1) refresh the library so
+    /// any sidecars written by <c>ReadScene</c> are visible, (2) walk
+    /// the doc through the resolver to bind <see cref="AssetRef"/>s to
+    /// runtime ids.
     /// </summary>
     Result<Unit, string> LoadScene(string projectRelative)
     {
@@ -191,17 +200,9 @@ public sealed class Application : IDisposable
         // can resolve their AssetRefs.
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
         assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
 
-        // Wipe registry + pipeline asset caches so the loader registers
-        // fresh ids. Skip on first call (assets registry is fresh).
-        if (!string.IsNullOrEmpty(activeScenePath))
-        {
-            vk.DeviceWaitIdle(gpu.Device);
-            pipeline.ResetSceneState();
-            assets.ResetForSceneSwap();
-        }
-
-        var loaded = SceneLoader.Load(projectRoot, doc, assetLibrary, assets, _procedural);
+        var loaded = SceneLoader.Load(doc, resolver);
         if (loaded.IsError)
             return Result.Error<Unit, string>(
                 $"failed to load scene: {loaded.Match<SceneLoadError>(_ => null!, e => e).Message}");
@@ -212,6 +213,7 @@ public sealed class Application : IDisposable
         app = app.WithActiveScene(projectRelative);
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
         assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
         return Result.Ok<Unit, string>(Unit.Value);
     }
 
@@ -222,6 +224,7 @@ public sealed class Application : IDisposable
         gpu = VulkanDevice.Create(vk, window.GetRequiredVulkanExtensions(),
             instance => window.CreateVulkanSurface(instance));
         assets = new AssetRegistry(gpu);
+        resolver = new SceneAssetResolver(assets);
         overlayRenderPass = VulkanPipeline.CreateOverlayRenderPass(gpu);
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
         imgui = VulkanImGui.Create(gpu, overlayRenderPass);
@@ -397,6 +400,12 @@ public sealed class Application : IDisposable
             case AppUiMsg.RequestUpdateMaterial umat:
                 HandleUpdateMaterial(umat);
                 break;
+            case AppUiMsg.RequestDeleteAsset del:
+                HandleDeleteAsset(del.Guid);
+                break;
+            case AppUiMsg.RequestRenameAsset ren:
+                HandleRenameAsset(ren.Guid, ren.NewName);
+                break;
             case AppUiMsg.RequestSaveScene:
                 HandleSaveScene(activeScenePath);
                 break;
@@ -421,6 +430,7 @@ public sealed class Application : IDisposable
             case AppUiMsg.RequestRescanProject:
                 projectIndex = ProjectAssetScanner.Scan(projectRoot);
                 assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+                resolver.Bind(projectRoot, assetLibrary, _procedural);
                 break;
             case AppUiMsg.RequestRevealInExplorer rv:
                 PlatformDialogs.RevealInExplorer(rv.AbsolutePath);
@@ -445,7 +455,7 @@ public sealed class Application : IDisposable
                     app = app with { SceneDirty = true };
                 projectIndex = ProjectAssetScanner.Scan(projectRoot);
                 assetLibrary = AssetLibraryScanner.Scan(projectIndex);
-        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+                resolver.Bind(projectRoot, assetLibrary, _procedural);
                 return r.Drawables.Select(d => new UiMsg.AddDrawable(
                     d.Name, d.Mesh,
                     new Transform(d.Position, d.Rotation, d.Scale),
@@ -579,6 +589,7 @@ public sealed class Application : IDisposable
 
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
         assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
 
         // Reverse-lookup the runtime MaterialId. A material may be edited even
         // when no scene drawable references it — disk persistence is the only
@@ -631,6 +642,275 @@ public sealed class Application : IDisposable
             app = app with { SceneDirty = true };
         }
         catch (Exception ex) { Console.WriteLine($"  remove material #{id.Value} failed: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Delete an Asset Browser entry. The Asset Browser surfaces stable
+    /// library entries keyed by guid; runtime ids may or may not exist
+    /// for any given entry depending on whether the active scene
+    /// touched it. Refuses when the live scene (or, for textures, any
+    /// material file in the project) still references the entry. On
+    /// success, removes the live runtime registration (if any), deletes
+    /// the source + sidecar from disk, invalidates the resolver cache,
+    /// and rescans the library.
+    /// </summary>
+    void HandleDeleteAsset(Guid guid)
+    {
+        var entry = assetLibrary.Find(guid);
+        if (entry is null)
+        {
+            Console.WriteLine($"  delete asset {guid:D}: no library entry");
+            return;
+        }
+
+        // Ref-check at the project level so we don't orphan a scene
+        // drawable or a material file that still cites this guid.
+        var refs = CountRefsTo(guid, entry.Kind);
+        if (refs > 0)
+        {
+            Console.WriteLine($"  delete asset '{entry.Name}': refused, {refs} reference(s) still point at it");
+            return;
+        }
+
+        // Resolve absolute paths to delete BEFORE we touch the registry,
+        // so a missing/locked file aborts the operation with no GPU side
+        // effects.
+        string? primaryAbsolute = null;
+        string? sidecarAbsolute = null;
+        switch (entry)
+        {
+            case MaterialAssetEntry m:
+                primaryAbsolute = ResolveAbsolute(m.ProjectRelativePath);
+                sidecarAbsolute = primaryAbsolute is null ? null : AssetMetaIO.MetaPathFor(primaryAbsolute);
+                break;
+            case FileAssetEntry f:
+                primaryAbsolute = ResolveAbsolute(f.ProjectRelativePath);
+                sidecarAbsolute = primaryAbsolute is null ? null : AssetMetaIO.MetaPathFor(primaryAbsolute);
+                break;
+            case ProceduralAssetEntry p:
+                // .proc.meta IS the source — no separate sidecar.
+                primaryAbsolute = ResolveAbsolute(p.ProjectRelativePath);
+                break;
+        }
+        if (primaryAbsolute is null)
+        {
+            Console.WriteLine($"  delete asset '{entry.Name}': could not resolve project-relative path");
+            return;
+        }
+
+        // Idle the GPU before tearing down any live registration — the
+        // texture/mesh removal queues a deferred destroy, but we'd
+        // rather not race the in-flight frame.
+        bool touchedGpu = false;
+        switch (entry.Kind)
+        {
+            case AssetKind.Mesh:
+                foreach (var kv in sources.MeshSources)
+                    if (kv.Value.Guid == guid)
+                    {
+                        if (!touchedGpu) { vk.DeviceWaitIdle(gpu.Device); touchedGpu = true; }
+                        try { assets.RemoveMesh(kv.Key); } catch (Exception ex) { Console.WriteLine($"  delete asset '{entry.Name}': RemoveMesh failed: {ex.Message}"); }
+                        sources = sources.WithoutMesh(kv.Key);
+                    }
+                break;
+            case AssetKind.Texture:
+                foreach (var kv in sources.TextureSources)
+                    if (kv.Value.Guid == guid)
+                    {
+                        if (!touchedGpu) { vk.DeviceWaitIdle(gpu.Device); touchedGpu = true; }
+                        try
+                        {
+                            assets.RemoveTexture(kv.Key);
+                            (pipeline as DeferredPipeline)?.InvalidateMaterialTexture(kv.Key);
+                        }
+                        catch (Exception ex) { Console.WriteLine($"  delete asset '{entry.Name}': RemoveTexture failed: {ex.Message}"); }
+                        sources = sources.WithoutTexture(kv.Key);
+                    }
+                break;
+            case AssetKind.Material:
+                foreach (var kv in sources.MaterialSources)
+                    if (kv.Value.Guid == guid)
+                    {
+                        try { assets.RemoveMaterial(kv.Key); } catch (Exception ex) { Console.WriteLine($"  delete asset '{entry.Name}': RemoveMaterial failed: {ex.Message}"); }
+                        sources = sources.WithoutMaterial(kv.Key);
+                    }
+                break;
+        }
+
+        // Disk: source + sidecar. Missing files are tolerated — the goal
+        // state is "neither exists." A locked file surfaces as a console
+        // error; the runtime state is already consistent.
+        TryDelete(primaryAbsolute);
+        if (sidecarAbsolute is not null) TryDelete(sidecarAbsolute);
+
+        resolver.InvalidateGuid(guid);
+
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
+
+        Console.WriteLine($"  delete asset '{entry.Name}': removed {primaryAbsolute}");
+    }
+
+    /// <summary>
+    /// Rename a project-level asset. Moves the source file + meta
+    /// sidecar (file assets) or the .mat.json + sidecar (materials)
+    /// or just the .proc.meta (procedurals) to a sibling path with the
+    /// new basename, preserving the original extension. For material
+    /// and procedural docs the embedded <c>name</c> field is updated to
+    /// match. The GUID is unchanged, so scene-level AssetRefs keep
+    /// pointing at the renamed entry without any scene rewrites.
+    /// </summary>
+    void HandleRenameAsset(Guid guid, string newName)
+    {
+        var entry = assetLibrary.Find(guid);
+        if (entry is null)
+        {
+            Console.WriteLine($"  rename asset {guid:D}: no library entry");
+            return;
+        }
+
+        var sanitized = (newName ?? string.Empty).Trim();
+        if (string.IsNullOrEmpty(sanitized))
+        {
+            Console.WriteLine($"  rename asset '{entry.Name}': empty name");
+            return;
+        }
+        if (sanitized.IndexOfAny(['/', '\\']) >= 0
+            || sanitized.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0
+            || sanitized.StartsWith('.'))
+        {
+            Console.WriteLine($"  rename asset '{entry.Name}': invalid name '{sanitized}'");
+            return;
+        }
+        if (string.Equals(sanitized, entry.Name, StringComparison.Ordinal))
+            return; // no-op
+
+        string projectRelative;
+        switch (entry)
+        {
+            case MaterialAssetEntry m: projectRelative = m.ProjectRelativePath; break;
+            case FileAssetEntry f:    projectRelative = f.ProjectRelativePath; break;
+            case ProceduralAssetEntry p: projectRelative = p.ProjectRelativePath; break;
+            default:
+                Console.WriteLine($"  rename asset '{entry.Name}': unknown entry kind");
+                return;
+        }
+
+        var primaryAbsolute = ResolveAbsolute(projectRelative);
+        if (primaryAbsolute is null || !File.Exists(primaryAbsolute))
+        {
+            Console.WriteLine($"  rename asset '{entry.Name}': source missing at {projectRelative}");
+            return;
+        }
+
+        // Preserve the original file's compound extension. .mat.json and
+        // .proc.meta both have two dots; Path.GetExtension only returns
+        // the last segment, so we detect those explicitly.
+        string fileName = Path.GetFileName(primaryAbsolute);
+        string ext = fileName.EndsWith(".mat.json", StringComparison.OrdinalIgnoreCase)
+            ? ".mat.json"
+            : fileName.EndsWith(".proc.meta", StringComparison.OrdinalIgnoreCase)
+                ? ".proc.meta"
+                : Path.GetExtension(fileName);
+
+        string dir = Path.GetDirectoryName(primaryAbsolute)!;
+        string newPrimary = Path.Combine(dir, sanitized + ext);
+        if (File.Exists(newPrimary)
+            && !string.Equals(newPrimary, primaryAbsolute, StringComparison.OrdinalIgnoreCase))
+        {
+            Console.WriteLine($"  rename asset '{entry.Name}': target already exists at {newPrimary}");
+            return;
+        }
+
+        try
+        {
+            // Move source first, then sidecar. If only the source moves
+            // successfully and the sidecar fails, the next scan still
+            // finds the file via its old .meta (mismatched basename is
+            // fine — the .meta carries the guid).
+            File.Move(primaryAbsolute, newPrimary);
+
+            // File assets and materials have a separate .meta sidecar;
+            // procedural assets do not (the .proc.meta IS the source).
+            if (entry is not ProceduralAssetEntry)
+            {
+                string oldMeta = AssetMetaIO.MetaPathFor(primaryAbsolute);
+                string newMeta = AssetMetaIO.MetaPathFor(newPrimary);
+                if (File.Exists(oldMeta)) File.Move(oldMeta, newMeta);
+            }
+
+            // Rewrite the embedded name for self-describing assets so
+            // future scans report the new name (and any tool that reads
+            // the file directly stays consistent).
+            switch (entry)
+            {
+                case MaterialAssetEntry m:
+                    AssetLibraryScanner.WriteMaterial(newPrimary, new MaterialFileDoc(
+                        Version: 1, Name: sanitized, Params: m.Params, AlbedoTex: m.AlbedoTex));
+                    break;
+                case ProceduralAssetEntry p:
+                {
+                    var doc = ProceduralAssetIO.TryRead(newPrimary);
+                    if (doc is not null)
+                        ProceduralAssetIO.Write(newPrimary, doc with { Name = sanitized });
+                    break;
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  rename asset '{entry.Name}': {ex.Message}");
+            return;
+        }
+
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
+
+        Console.WriteLine($"  rename asset: '{entry.Name}' → '{sanitized}' at {newPrimary}");
+    }
+
+    int CountRefsTo(Guid guid, AssetKind kind)
+    {
+        int count = 0;
+        switch (kind)
+        {
+            case AssetKind.Mesh:
+                foreach (var d in ui.Drawables)
+                    if (sources.MeshSources.TryGetValue(d.Mesh, out var r) && r.Guid == guid) count++;
+                break;
+            case AssetKind.Material:
+                foreach (var d in ui.Drawables)
+                    if (sources.MaterialSources.TryGetValue(d.Material, out var r) && r.Guid == guid) count++;
+                break;
+            case AssetKind.Texture:
+                // File-level check: every material on disk that points at
+                // this texture, regardless of whether the active scene has
+                // it loaded.
+                foreach (var e in assetLibrary.ByGuid.Values)
+                    if (e is MaterialAssetEntry m && m.AlbedoTex is AssetRef tr && tr.Guid == guid) count++;
+                break;
+        }
+        return count;
+    }
+
+    string? ResolveAbsolute(string projectRelative)
+    {
+        var res = ProjectIO.ResolveProjectPath(projectRoot, projectRelative);
+        return res.IsOk ? res.Match(ok: p => p, error: _ => null!) : null;
+    }
+
+    static void TryDelete(string absolutePath)
+    {
+        try
+        {
+            if (File.Exists(absolutePath)) File.Delete(absolutePath);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  delete: could not remove {absolutePath}: {ex.Message}");
+        }
     }
 
     // ─── M6.2 / M6.3 handlers ──────────────────────────────────────────

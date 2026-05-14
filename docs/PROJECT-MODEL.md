@@ -52,7 +52,7 @@ The Application records the ImGui overlay pass on top of whatever the pipeline l
 
 ## Save / load split
 
-The pure layer (`RenderLab.Project`) reads and writes documents — bytes ↔ records — without any GPU calls. `SceneLoader` (in `RenderLab.Pipelines`) is the impure boundary: it walks the document, calls `AssetRegistry.RegisterMesh / RegisterTexture / RegisterMaterial` (resolving procedural sources via `IProceduralAssetSource`), and returns a `LoadedScene(UiModel, SceneAssetSources)`. The save side is the inverse — `SceneDocumentBuilder.From(ui, catalog, sources)` is pure.
+The pure layer (`RenderLab.Project`) reads and writes documents — bytes ↔ records — without any GPU calls. `SceneLoader` (in `RenderLab.Pipelines`) is the impure boundary: it walks the document and resolves each drawable's `AssetRef` through a `SceneAssetResolver`, returning a `LoadedScene(UiModel, SceneAssetSources)`. The resolver is the lazy bridge from project-level `AssetRef` to runtime `MeshId` / `TextureId` / `MaterialId` — the first call for a given ref imports from source (procedural generator or glTF) and registers in the `AssetRegistry`; subsequent calls return the cached id. Because the resolver outlives any single scene, swapping scenes inside a project reuses ids and GPU uploads instead of wiping and re-uploading. The save side is the inverse — `SceneDocumentBuilder.From(ui, catalog, sources)` is pure.
 
 `SceneAssetSources` is the runtime mapping from registered ids back to the symbolic `AssetSourceDoc` they came from. The loader populates it as it materialises the scene; the shell extends it on every glTF import; the builder consumes it on save so file paths and procedural generator parameters round-trip into the on-disk scene without ever baking pixels or vertices.
 
@@ -64,7 +64,7 @@ The editor's `File` menu drives the project / scene lifecycle:
 
 - **Save Scene** (`Ctrl+S`) — writes the active scene to its `*.scene.json` via `SceneDocumentBuilder` + `ProjectIO.WriteScene`. The menu label includes the scene path and a `*` when `AppUiModel.SceneDirty` is set.
 - **Save Scene As…** — opens a `*.scene.json` save dialog, defaults to the project's `scenes/` folder, and adds the new scene to the manifest's `scenes` list (so it shows up in *Open Scene* immediately).
-- **Open Scene** — submenu listing every scene in `manifest.Scenes`. Clicking switches by waiting for GPU idle, calling `IPipeline.ResetSceneState()` (drops scene-keyed descriptor caches), `AssetRegistry.ResetForSceneSwap()` (releases non-builtin meshes/textures/materials), then re-running `SceneLoader.Load` against the new document.
+- **Open Scene** — submenu listing every scene in `manifest.Scenes`. Clicking re-runs `SceneLoader.Load` against the new document with the persistent `SceneAssetResolver`; assets already uploaded by previous scenes are reused by GUID, so a scene swap inside a project does not idle the GPU or wipe the registry. (Switching to a different *project* still tears the registry down to built-ins — see *Open Project…* below.)
 - **Reload Scene** — re-reads the active scene from disk, dropping any unsaved edits.
 - **Open Project…** / **New Project…** — folder picker. *New Project* writes a minimal `project.json` + `assets/` + a sphere starter scene (`deferred` pipeline) and opens it. Switching projects also disposes the current `IPipeline` and instantiates a fresh one resolved from the new manifest's pipeline id.
 

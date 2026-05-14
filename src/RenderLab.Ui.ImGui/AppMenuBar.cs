@@ -63,12 +63,12 @@ public static class AppMenuBar
         {
             ViewToggle("GPU Timings",   PanelId.GpuTimings,    app, dispatch);
             ViewToggle("Visualization", PanelId.Visualization, app, dispatch);
-            ViewToggle("Camera",        PanelId.Camera,        app, dispatch);
             ViewToggle("Lighting",      PanelId.Lighting,      app, dispatch);
             ViewToggle("Render Graph",  PanelId.RenderGraph,   app, dispatch);
             ViewToggle("Scene",         PanelId.Scene,         app, dispatch);
             ViewToggle("Asset Browser", PanelId.AssetBrowser,  app, dispatch);
             ViewToggle("Project",       PanelId.Project,       app, dispatch);
+            ViewToggle("Inspector",     PanelId.Inspector,     app, dispatch);
             ImGui.EndMenu();
         }
 

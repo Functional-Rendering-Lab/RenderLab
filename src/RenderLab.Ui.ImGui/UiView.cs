@@ -33,12 +33,12 @@ public static class UiView
 
         if (app.IsPanelVisible(PanelId.GpuTimings))    DrawGpuTimingsPanel(stats);
         if (app.IsPanelVisible(PanelId.Visualization)) DrawVisualizationPanel(model.Viz, dispatch);
-        if (app.IsPanelVisible(PanelId.Camera))        FreeCameraDebugMenu.Draw(model.Camera, dispatch);
-        if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Lights, model.Ambient, model.Shading, model.LightingOnly, model.ClearColor, model.Background, dispatch);
+        if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Shading, model.LightingOnly, dispatch);
         if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
-        if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(model, scene, catalog, dispatch);
-        if (app.IsPanelVisible(PanelId.AssetBrowser))  AssetBrowserPanel.Draw(library, dispatchApp);
+        if (app.IsPanelVisible(PanelId.Scene))         ScenePanel.Draw(model, catalog, dispatch);
+        if (app.IsPanelVisible(PanelId.AssetBrowser))  AssetBrowserPanel.Draw(model, library, dispatch, dispatchApp);
         if (app.IsPanelVisible(PanelId.Project))       ProjectPanel.Draw(projectIndex, dispatchApp);
+        if (app.IsPanelVisible(PanelId.Inspector))     InspectorPanel.Draw(model, catalog, library, dispatch, dispatchApp);
 
         var io = ImGui.GetIO();
         var intent = new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard);

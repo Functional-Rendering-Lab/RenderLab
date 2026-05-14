@@ -18,7 +18,7 @@ public static class UiUpdate
         UiMsg.UpdateAmbient m           => model with { Ambient = m.Ambient },
         UiMsg.AddDrawable m             => AddDrawable(model, m.Name, m.Mesh, m.Transform, m.Material),
         UiMsg.RemoveDrawable m          => RemoveDrawable(model, m.LocalId),
-        UiMsg.SelectDrawable m          => model with { SelectedDrawable = m.LocalId },
+        UiMsg.Select m                  => model with { Selection = m.Selection },
         UiMsg.SetDrawableTransform m    => UpdateDrawable(model, m.LocalId, d => d with { Transform = m.Transform }),
         UiMsg.SetDrawableMesh m         => UpdateDrawable(model, m.LocalId, d => d with { Mesh = m.Mesh }),
         UiMsg.SetDrawableMaterial m     => UpdateDrawable(model, m.LocalId, d => d with { Material = m.Material }),
@@ -37,10 +37,20 @@ public static class UiUpdate
             ? model with { Lights = model.Lights.SetItem(index, light) }
             : model;
 
-    private static UiModel RemoveLight(UiModel model, int index) =>
-        index >= 0 && index < model.Lights.Length
-            ? model with { Lights = model.Lights.RemoveAt(index) }
-            : model;
+    private static UiModel RemoveLight(UiModel model, int index)
+    {
+        if (index < 0 || index >= model.Lights.Length) return model;
+        var next = model.Lights.RemoveAt(index);
+        // Clear selection if it pointed at the removed light, or shift it down
+        // when a lower-indexed light was removed under it.
+        var selection = model.Selection switch
+        {
+            Selection.Light s when s.Index == index  => Selection.Empty,
+            Selection.Light s when s.Index >  index  => new Selection.Light(s.Index - 1),
+            _                                        => model.Selection,
+        };
+        return model with { Lights = next, Selection = selection };
+    }
 
     private static UiModel AddDrawable(UiModel model, string name, RenderLab.Assets.MeshId mesh, Transform transform, RenderLab.Assets.MaterialId material)
     {
@@ -48,7 +58,7 @@ public static class UiUpdate
         return model with
         {
             Drawables = model.Drawables.Add(drawable),
-            SelectedDrawable = drawable.LocalId,
+            Selection = new Selection.Drawable(drawable.LocalId),
         };
     }
 
@@ -57,8 +67,10 @@ public static class UiUpdate
         var idx = IndexOf(model.Drawables, id);
         if (idx < 0) return model;
         var next = model.Drawables.RemoveAt(idx);
-        var selection = model.SelectedDrawable == id ? null : model.SelectedDrawable;
-        return model with { Drawables = next, SelectedDrawable = selection };
+        var selection = model.Selection is Selection.Drawable d && d.LocalId == id
+            ? Selection.Empty
+            : model.Selection;
+        return model with { Drawables = next, Selection = selection };
     }
 
     private static UiModel UpdateDrawable(UiModel model, Guid id, Func<EditableDrawable, EditableDrawable> edit)

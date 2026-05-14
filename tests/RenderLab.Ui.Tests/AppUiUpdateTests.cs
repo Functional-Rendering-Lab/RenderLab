@@ -17,10 +17,10 @@ public class AppUiUpdateTests
     public void TogglePanel_flipsVisibility()
     {
         var start = Fresh();
-        var hidden = AppUiUpdate.Apply(start, new AppUiMsg.TogglePanel(PanelId.Camera));
-        Assert.False(hidden.IsPanelVisible(PanelId.Camera));
-        var shown = AppUiUpdate.Apply(hidden, new AppUiMsg.TogglePanel(PanelId.Camera));
-        Assert.True(shown.IsPanelVisible(PanelId.Camera));
+        var hidden = AppUiUpdate.Apply(start, new AppUiMsg.TogglePanel(PanelId.Lighting));
+        Assert.False(hidden.IsPanelVisible(PanelId.Lighting));
+        var shown = AppUiUpdate.Apply(hidden, new AppUiMsg.TogglePanel(PanelId.Lighting));
+        Assert.True(shown.IsPanelVisible(PanelId.Lighting));
     }
 
     [Fact]
@@ -28,8 +28,8 @@ public class AppUiUpdateTests
     {
         var m = AppUiUpdate.Apply(Fresh(), new AppUiMsg.SetPanelVisible(PanelId.Scene, false));
         Assert.False(m.IsPanelVisible(PanelId.Scene));
-        Assert.True(m.IsPanelVisible(PanelId.Camera));
         Assert.True(m.IsPanelVisible(PanelId.Lighting));
+        Assert.True(m.IsPanelVisible(PanelId.Inspector));
     }
 
     [Fact]
@@ -53,13 +53,13 @@ public class AppUiUpdateTests
     {
         var msgs = new AppUiMsg[]
         {
-            new AppUiMsg.TogglePanel(PanelId.Camera),
             new AppUiMsg.TogglePanel(PanelId.Lighting),
+            new AppUiMsg.TogglePanel(PanelId.Scene),
             new AppUiMsg.RequestExit(),
         };
         var final = AppUiUpdate.ApplyAll(Fresh(), msgs);
-        Assert.False(final.IsPanelVisible(PanelId.Camera));
         Assert.False(final.IsPanelVisible(PanelId.Lighting));
+        Assert.False(final.IsPanelVisible(PanelId.Scene));
         Assert.True(final.RequestedExit);
     }
 }
