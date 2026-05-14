@@ -44,10 +44,10 @@ public static class InspectorPanel
                 DrawMaterialAsset(m.Guid, library, dispatchApp);
                 break;
             case Selection.MeshAsset me:
-                DrawAssetEntry(me.Guid, library);
+                DrawAssetEntry(me.Guid, library, dispatchApp);
                 break;
             case Selection.TextureAsset t:
-                DrawAssetEntry(t.Guid, library);
+                DrawAssetEntry(t.Guid, library, dispatchApp);
                 break;
             case Selection.Environment:
                 DrawEnvironment(model, dispatch);
@@ -209,7 +209,7 @@ public static class InspectorPanel
 
     // ─── Read-only asset entries (mesh / texture) ──────────────────────
 
-    private static void DrawAssetEntry(Guid guid, AssetLibrary library)
+    private static void DrawAssetEntry(Guid guid, AssetLibrary library, Action<AppUiMsg> dispatchApp)
     {
         var e = library.Find(guid);
         if (e is null)
@@ -222,10 +222,44 @@ public static class InspectorPanel
         {
             case FileAssetEntry f:
                 ImGui.TextWrapped(f.ProjectRelativePath);
+                ImGui.Separator();
+                DrawImportSettings(f, dispatchApp);
                 break;
             case ProceduralAssetEntry p:
                 ImGui.Text($"Generator: {p.Generator}");
                 ImGui.TextWrapped(p.ProjectRelativePath);
+                break;
+        }
+    }
+
+    private static void DrawImportSettings(FileAssetEntry f, Action<AppUiMsg> dispatchApp)
+    {
+        ImGui.SeparatorText("Import settings");
+        ImGui.TextDisabled("Stored in the .meta sidecar.");
+        switch (f.Import)
+        {
+            case MeshImportSettings ms:
+            {
+                var scale = DebugFields.DragFloat("Scale", ms.Scale, 0.01f, 0.001f, 100f);
+                if (!FloatsEqual(scale, ms.Scale))
+                    dispatchApp(new AppUiMsg.RequestUpdateMeshImport(f.Guid, scale));
+                ImGui.TextDisabled("(Applied on next scene reload.)");
+                break;
+            }
+            case TextureImportSettings ts:
+            {
+                bool sRgb = ts.SRgb;
+                bool mips = ts.Mips;
+                bool changed = false;
+                if (ImGui.Checkbox("sRGB", ref sRgb)) changed = true;
+                if (ImGui.Checkbox("Generate mips", ref mips)) changed = true;
+                if (changed)
+                    dispatchApp(new AppUiMsg.RequestUpdateTextureImport(f.Guid, sRgb, mips));
+                ImGui.TextDisabled("(Applied on next scene reload.)");
+                break;
+            }
+            default:
+                ImGui.TextDisabled("No import settings for this kind.");
                 break;
         }
     }
@@ -259,6 +293,9 @@ public static class InspectorPanel
         };
         if (!next.Equals(state))
             dispatch(new UiMsg.UpdateCamera(next));
+
+        var bg = (BackgroundMode)DebugFields.ComboEdit("Background", (int)model.Background, BackgroundModeNames);
+        if (bg != model.Background) dispatch(new UiMsg.SetBackground(bg));
     }
 
     // ─── Environment (global lighting) ─────────────────────────────────
@@ -273,15 +310,10 @@ public static class InspectorPanel
     {
         ImGui.SeparatorText("Environment");
 
-        ImGui.SeparatorText("Ambient (hemispheric)");
         var sky    = DebugFields.ColorEdit("Sky",    model.Ambient.Sky);
         var ground = DebugFields.ColorEdit("Ground", model.Ambient.Ground);
         if (sky != model.Ambient.Sky || ground != model.Ambient.Ground)
             dispatch(new UiMsg.UpdateAmbient(new HemisphericAmbient(sky, ground)));
-
-        ImGui.SeparatorText("Background");
-        var bg = (BackgroundMode)DebugFields.ComboEdit("Mode", (int)model.Background, BackgroundModeNames);
-        if (bg != model.Background) dispatch(new UiMsg.SetBackground(bg));
 
         var clear = DebugFields.ColorEdit("Clear color", model.ClearColor);
         if (clear != model.ClearColor) dispatch(new UiMsg.SetClearColor(clear));

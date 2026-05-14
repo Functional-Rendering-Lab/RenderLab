@@ -400,6 +400,15 @@ public sealed class Application : IDisposable
             case AppUiMsg.RequestUpdateMaterial umat:
                 HandleUpdateMaterial(umat);
                 break;
+            case AppUiMsg.RequestAddDrawableFromAsset add:
+                if (followUp is not null) followUp.AddRange(HandleAddDrawableFromAsset(add.MeshGuid));
+                break;
+            case AppUiMsg.RequestUpdateMeshImport umi:
+                HandleUpdateMeshImport(umi.Guid, umi.Scale);
+                break;
+            case AppUiMsg.RequestUpdateTextureImport uti:
+                HandleUpdateTextureImport(uti.Guid, uti.SRgb, uti.Mips);
+                break;
             case AppUiMsg.RequestDeleteAsset del:
                 HandleDeleteAsset(del.Guid);
                 break;
@@ -466,6 +475,50 @@ public sealed class Application : IDisposable
                 Console.WriteLine($"  glTF import failed for {resolved}: {e.Message}");
                 return Array.Empty<UiMsg>();
             });
+    }
+
+    /// <summary>
+    /// Drag-to-scene: spawn a drawable referencing a mesh asset and pair
+    /// it with a material asset (first available in the library, so save
+    /// round-trips). For glTF-backed meshes we address the first
+    /// sub-mesh; procedurals carry no sub.
+    /// </summary>
+    IEnumerable<UiMsg> HandleAddDrawableFromAsset(Guid meshGuid)
+    {
+        var entry = assetLibrary.Find(meshGuid);
+        if (entry is null || entry.Kind != AssetKind.Mesh)
+        {
+            Console.WriteLine($"  add drawable: guid {meshGuid:D} is not a mesh in this project");
+            return Array.Empty<UiMsg>();
+        }
+        var meshRef = entry is FileAssetEntry ? new AssetRef(meshGuid, "mesh:0") : new AssetRef(meshGuid);
+        var meshRes = resolver.ResolveMesh(meshRef);
+        if (meshRes.IsError)
+        {
+            Console.WriteLine($"  add drawable: mesh resolve failed: {meshRes.Match<SceneLoadError>(_ => null!, e => e).Message}");
+            return Array.Empty<UiMsg>();
+        }
+        var meshId = meshRes.Match(ok: x => x, error: _ => default);
+        sources = sources.WithMesh(meshId, meshRef);
+
+        MaterialId materialId = assets.BuiltinDefaultMaterial;
+        AssetRef? materialRef = null;
+        foreach (var libEntry in assetLibrary.ByGuid.Values)
+        {
+            if (libEntry is not MaterialAssetEntry m) continue;
+            var matRes = resolver.ResolveMaterial(new AssetRef(m.Guid));
+            if (matRes.IsError) continue;
+            materialId = matRes.Match(ok: x => x, error: _ => default);
+            materialRef = new AssetRef(m.Guid);
+            break;
+        }
+        if (materialRef is AssetRef mr)
+            sources = sources.WithMaterial(materialId, mr);
+        else
+            Console.WriteLine("  add drawable: no .mat.json in project — drawable bound to built-in default; save will refuse until a material is assigned");
+
+        app = app with { SceneDirty = true };
+        return new UiMsg[] { new UiMsg.AddDrawable(entry.Name, meshId, Transform.Default, materialId) };
     }
 
     /// <summary>
@@ -869,6 +922,60 @@ public sealed class Application : IDisposable
         resolver.Bind(projectRoot, assetLibrary, _procedural);
 
         Console.WriteLine($"  rename asset: '{entry.Name}' → '{sanitized}' at {newPrimary}");
+    }
+
+    /// <summary>
+    /// Persist edited <c>MeshImportSettings</c> (currently just
+    /// <c>Scale</c>) to the asset's <c>.meta</c> sidecar. The importer
+    /// does not yet consume these fields — the write is forward-looking
+    /// storage so the editor round-trips.
+    /// </summary>
+    void HandleUpdateMeshImport(Guid guid, float scale)
+    {
+        if (assetLibrary.Find(guid) is not FileAssetEntry f || f.Kind != AssetKind.Mesh)
+        {
+            Console.WriteLine($"  update mesh import {guid:D}: not a file-backed mesh");
+            return;
+        }
+        WriteMetaImport(f, new MeshImportSettings(Scale: scale));
+    }
+
+    /// <summary>
+    /// Persist edited <c>TextureImportSettings</c> to the texture's
+    /// <c>.meta</c> sidecar. Like <see cref="HandleUpdateMeshImport"/>,
+    /// the fields are not yet honoured by the texture uploader.
+    /// </summary>
+    void HandleUpdateTextureImport(Guid guid, bool sRgb, bool mips)
+    {
+        if (assetLibrary.Find(guid) is not FileAssetEntry f || f.Kind != AssetKind.Texture)
+        {
+            Console.WriteLine($"  update texture import {guid:D}: not a file-backed texture");
+            return;
+        }
+        WriteMetaImport(f, new TextureImportSettings(SRgb: sRgb, Mips: mips));
+    }
+
+    void WriteMetaImport(FileAssetEntry f, ImportSettings settings)
+    {
+        var absolute = ResolveAbsolute(f.ProjectRelativePath);
+        if (absolute is null)
+        {
+            Console.WriteLine($"  update import {f.Name}: could not resolve project-relative path");
+            return;
+        }
+        var metaPath = AssetMetaIO.MetaPathFor(absolute);
+        try
+        {
+            AssetMetaIO.Write(metaPath, new AssetMetaDoc(f.Guid, f.Kind, settings));
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"  update import {f.Name}: write failed: {ex.Message}");
+            return;
+        }
+        projectIndex = ProjectAssetScanner.Scan(projectRoot);
+        assetLibrary = AssetLibraryScanner.Scan(projectIndex);
+        resolver.Bind(projectRoot, assetLibrary, _procedural);
     }
 
     int CountRefsTo(Guid guid, AssetKind kind)

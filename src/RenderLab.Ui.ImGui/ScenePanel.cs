@@ -16,7 +16,8 @@ using ImGui = ImGuiNET.ImGui;
 /// </summary>
 public static class ScenePanel
 {
-    public static void Draw(UiModel model, IAssetCatalog catalog, Action<UiMsg> dispatch)
+    public static void Draw(UiModel model, IAssetCatalog catalog,
+        Action<UiMsg> dispatch, Action<AppUiMsg> dispatchApp)
     {
         ImGui.SetNextWindowPos(new Vector2(640, 10), ImGuiCond.FirstUseEver);
         ImGui.SetNextWindowSize(new Vector2(360, 460), ImGuiCond.FirstUseEver);
@@ -38,8 +39,15 @@ public static class ScenePanel
 
         if (ImGui.TreeNodeEx($"Drawables ({model.Drawables.Length})", ImGuiTreeNodeFlags.DefaultOpen))
         {
+            AcceptMeshDrop(dispatchApp);
             DrawDrawableList(model, catalog, dispatch);
             ImGui.TreePop();
+        }
+        else
+        {
+            // Drop on the collapsed header still adds a drawable — saves
+            // the user from expanding to use the feature.
+            AcceptMeshDrop(dispatchApp);
         }
 
         if (ImGui.TreeNodeEx($"Lights ({model.Lights.Length})", ImGuiTreeNodeFlags.DefaultOpen))
@@ -65,6 +73,19 @@ public static class ScenePanel
         }
 
         ImGui.End();
+    }
+
+    private static unsafe void AcceptMeshDrop(Action<AppUiMsg> dispatchApp)
+    {
+        if (!ImGui.BeginDragDropTarget()) return;
+        var payload = ImGui.AcceptDragDropPayload(AssetBrowserPanel.MeshDragPayloadType);
+        if (payload.NativePtr != null && payload.IsDelivery() && payload.DataSize == 16)
+        {
+            var span = new ReadOnlySpan<byte>((void*)payload.Data, 16);
+            var guid = new Guid(span);
+            dispatchApp(new AppUiMsg.RequestAddDrawableFromAsset(guid));
+        }
+        ImGui.EndDragDropTarget();
     }
 
     private static void LeafEntry(string label, bool selected, Action onClick)

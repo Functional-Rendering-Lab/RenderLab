@@ -67,6 +67,11 @@ public static class AssetBrowserPanel
         if (ImGui.Selectable($"{e.Name}##sel{e.Guid:N}", selected))
             dispatch(new UiMsg.Select(SelectionFor(e)));
 
+        // Mesh entries are drag sources for the Scene panel's Drawables
+        // drop target. Payload is the 16-byte GUID; the receiver
+        // resolves the AssetRef through SceneAssetResolver on drop.
+        if (e.Kind == AssetKind.Mesh) TryDragMesh(e);
+
         ImGui.SameLine();
         ImGui.TextDisabled(SecondaryLabel(e));
         ImGui.SameLine();
@@ -98,6 +103,19 @@ public static class AssetBrowserPanel
         ProceduralAssetEntry p => $"  ({p.Generator})",
         _                     => string.Empty,
     };
+
+    /// <summary>Drag-source for the mesh row.</summary>
+    public const string MeshDragPayloadType = "RL_MESH_ASSET";
+
+    private static unsafe void TryDragMesh(AssetEntry e)
+    {
+        if (!ImGui.BeginDragDropSource(ImGuiDragDropFlags.None)) return;
+        var bytes = e.Guid.ToByteArray();
+        fixed (byte* p = bytes)
+            ImGui.SetDragDropPayload(MeshDragPayloadType, (IntPtr)p, (uint)bytes.Length);
+        ImGui.Text($"Mesh: {e.Name}");
+        ImGui.EndDragDropSource();
+    }
 
     private static void DrawRenameButton(AssetEntry e, Action<AppUiMsg> dispatchApp)
     {

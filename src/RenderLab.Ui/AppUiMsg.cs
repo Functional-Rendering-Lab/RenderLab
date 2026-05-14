@@ -59,6 +59,29 @@ public abstract record AppUiMsg
         System.Guid? AlbedoTexGuid,
         string? AlbedoTexSub) : AppUiMsg;
 
+    /// <summary>
+    /// Drop-target trigger from the Scene panel: spawn a drawable that
+    /// references the dragged mesh asset, paired with the registry's
+    /// built-in default material. The shell resolves the GUID through
+    /// <c>SceneAssetResolver</c>, records the source ref so the next save
+    /// round-trips, and dispatches a <c>UiMsg.AddDrawable</c>.
+    /// </summary>
+    public sealed record RequestAddDrawableFromAsset(System.Guid MeshGuid) : AppUiMsg;
+
+    /// <summary>
+    /// Inspector edit on a mesh <c>FileAssetEntry</c> — rewrites the
+    /// <c>.meta</c> sidecar with new <c>MeshImportSettings</c>. Settings
+    /// are not yet consumed by the importer; the change is persisted so
+    /// it survives across sessions.
+    /// </summary>
+    public sealed record RequestUpdateMeshImport(System.Guid Guid, float Scale) : AppUiMsg;
+
+    /// <summary>
+    /// Inspector edit on a texture <c>FileAssetEntry</c> — rewrites the
+    /// <c>.meta</c> sidecar with new <c>TextureImportSettings</c>.
+    /// </summary>
+    public sealed record RequestUpdateTextureImport(System.Guid Guid, bool SRgb, bool Mips) : AppUiMsg;
+
     // ─── Project / scene lifecycle (M6.2 + M6.3) ───────────────────────
 
     /// <summary>Save the current scene back to <c>activeScenePath</c>.</summary>
