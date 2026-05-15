@@ -9,8 +9,9 @@ using ImGui = ImGuiNET.ImGui;
 /// <summary>
 /// Project-scoped inventory of usable assets, grouped by kind. Clicking a row
 /// emits a <see cref="UiMsg.Select"/> — the Inspector renders the editor.
-/// Rename / Delete stay here because they are list operations (file moves /
-/// removal) rather than item-property edits.
+/// Rename / Delete live on a right-click context menu (also bound to F2 /
+/// Delete when the row is selected) because they are list operations rather
+/// than item-property edits.
 /// </summary>
 public static class AssetBrowserPanel
 {
@@ -72,12 +73,39 @@ public static class AssetBrowserPanel
         // resolves the AssetRef through SceneAssetResolver on drop.
         if (e.Kind == AssetKind.Mesh) TryDragMesh(e);
 
+        // Capture menu intent first, then trigger OpenPopup at the row's id
+        // scope — calling OpenPopup inside BeginPopupContextItem resolves the
+        // popup id against the context-menu stack, so the row-scoped
+        // BeginPopupModal below would never see it.
+        bool wantRename = false, wantDelete = false;
+        if (ImGui.BeginPopupContextItem("row-ctx"))
+        {
+            if (ImGui.MenuItem("Rename", "F2")) wantRename = true;
+            if (ImGui.MenuItem("Delete", "Del")) wantDelete = true;
+            ImGui.EndPopup();
+        }
+
+        // F2 / Delete only act on the focused selected row in this window.
+        if (selected && ImGui.IsWindowFocused())
+        {
+            if (ImGui.IsKeyPressed(ImGuiKey.F2)) wantRename = true;
+            else if (ImGui.IsKeyPressed(ImGuiKey.Delete)) wantDelete = true;
+        }
+
+        if (wantRename) OpenRename(e);
+        if (wantDelete) ImGui.OpenPopup("confirm-delete");
+
         ImGui.SameLine();
         ImGui.TextDisabled(SecondaryLabel(e));
-        ImGui.SameLine();
-        DrawRenameButton(e, dispatchApp);
-        ImGui.SameLine();
-        DrawDeleteButton(e, dispatchApp);
+
+        DrawRenamePopup(e, dispatchApp);
+        DrawDeletePopup(e, dispatchApp);
+    }
+
+    private static void OpenRename(AssetEntry e)
+    {
+        _renameDrafts[e.Guid] = e.Name;
+        ImGui.OpenPopup("rename-asset");
     }
 
     private static Selection SelectionFor(AssetEntry e) => e switch
@@ -117,14 +145,8 @@ public static class AssetBrowserPanel
         ImGui.EndDragDropSource();
     }
 
-    private static void DrawRenameButton(AssetEntry e, Action<AppUiMsg> dispatchApp)
+    private static void DrawRenamePopup(AssetEntry e, Action<AppUiMsg> dispatchApp)
     {
-        if (ImGui.SmallButton("Rename"))
-        {
-            _renameDrafts[e.Guid] = e.Name;
-            ImGui.OpenPopup("rename-asset");
-        }
-
         var center = ImGui.GetMainViewport().GetCenter();
         ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
         if (ImGui.BeginPopupModal("rename-asset", ImGuiWindowFlags.AlwaysAutoResize))
@@ -167,11 +189,8 @@ public static class AssetBrowserPanel
         }
     }
 
-    private static void DrawDeleteButton(AssetEntry e, Action<AppUiMsg> dispatchApp)
+    private static void DrawDeletePopup(AssetEntry e, Action<AppUiMsg> dispatchApp)
     {
-        if (ImGui.SmallButton("Delete"))
-            ImGui.OpenPopup("confirm-delete");
-
         var center = ImGui.GetMainViewport().GetCenter();
         ImGui.SetNextWindowPos(center, ImGuiCond.Appearing, new Vector2(0.5f, 0.5f));
         if (ImGui.BeginPopupModal("confirm-delete", ImGuiWindowFlags.AlwaysAutoResize))
