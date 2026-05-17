@@ -9,7 +9,7 @@ namespace RenderLab.Scene;
 /// ground tint, and folding both into one type keeps the lighting push-constant
 /// boundary tidy.
 /// </summary>
-public sealed record HemisphericAmbient(Vector3 Sky, Vector3 Ground)
+public sealed record HemisphericAmbient(Color01 Sky, Color01 Ground)
 {
     /// <summary>
     /// Soft warm-white sky over a desaturated warm-earth ground. Intentionally
@@ -17,6 +17,6 @@ public sealed record HemisphericAmbient(Vector3 Sky, Vector3 Ground)
     /// case demos the ambient gradient cleanly.
     /// </summary>
     public static HemisphericAmbient Default { get; } = new(
-        Sky: new Vector3(0.50f, 0.55f, 0.60f),
-        Ground: new Vector3(0.15f, 0.12f, 0.10f));
+        Sky: Color01.UnsafeFrom(new Vector3(0.50f, 0.55f, 0.60f)),
+        Ground: Color01.UnsafeFrom(new Vector3(0.15f, 0.12f, 0.10f)));
 }

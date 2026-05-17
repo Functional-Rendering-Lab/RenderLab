@@ -1,4 +1,5 @@
 using System.Numerics;
+using RenderLab.Functional;
 
 namespace RenderLab.Assets;
 
@@ -12,8 +13,8 @@ public abstract record MaterialAsset(MaterialId Id, string Name);
 
 /// <summary>
 /// Blinn-Phong material: flat shading parameters plus an optional albedo map.
-/// <see cref="AlbedoMap"/> = <see cref="TextureId.None"/> falls back to the
-/// built-in 1×1 white texture so the shader path stays uniform.
+/// <see cref="AlbedoMap"/> = <c>None</c> falls back to the built-in 1×1 white
+/// texture at the resolver boundary so the shader path stays uniform.
 /// </summary>
 public sealed record BlinnPhongMaterial(
     MaterialId Id,
@@ -21,7 +22,7 @@ public sealed record BlinnPhongMaterial(
     Vector3 Albedo,
     float SpecularStrength,
     float Shininess,
-    TextureId AlbedoMap)
+    Optional<TextureId> AlbedoMap)
     : MaterialAsset(Id, Name)
 {
     public static BlinnPhongMaterial Default(MaterialId id, string name) =>
@@ -29,5 +30,5 @@ public sealed record BlinnPhongMaterial(
             Albedo: new Vector3(0.6f, 0.6f, 0.6f),
             SpecularStrength: 0.5f,
             Shininess: 32f,
-            AlbedoMap: TextureId.None);
+            AlbedoMap: Optional<TextureId>.None);
 }

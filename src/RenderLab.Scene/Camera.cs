@@ -9,11 +9,10 @@ namespace RenderLab.Scene;
 public sealed record Camera(
     Vector3 Position,
     Vector3 Target,
-    Vector3 Up,
-    float FovRadians,
+    UnitVector3 Up,
+    Fov Fov,
     float AspectRatio,
-    float NearPlane,
-    float FarPlane)
+    ClipPlanes Clip)
 {
     public Matrix4x4 ViewMatrix =>
         Matrix4x4.CreateLookAt(Position, Target, Up);
@@ -27,7 +26,7 @@ public sealed record Camera(
         get
         {
             var proj = Matrix4x4.CreatePerspectiveFieldOfView(
-                FovRadians, AspectRatio, NearPlane, FarPlane);
+                Fov, AspectRatio, Clip.Near, Clip.Far);
             // Vulkan clip space: Y is inverted compared to OpenGL
             proj.M22 *= -1;
             return proj;
@@ -43,9 +42,8 @@ public sealed record Camera(
     public static Camera CreateDefault(float aspect) => new(
         Position: new Vector3(0, 1.5f, 3.0f),
         Target: Vector3.Zero,
-        Up: Vector3.UnitY,
-        FovRadians: MathF.PI / 4f, // 45 degrees
+        Up: UnitVector3.UnsafeFromUnit(Vector3.UnitY),
+        Fov: Fov.UnsafeFromRadians(MathF.PI / 4f), // 45 degrees
         AspectRatio: aspect,
-        NearPlane: 0.1f,
-        FarPlane: 100f);
+        Clip: ClipPlanes.UnsafeFrom(0.1f, 100f));
 }

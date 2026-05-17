@@ -27,7 +27,7 @@ public static class MaterialPacking
         AlbedoAlpha: material.Shininess / MaterialParams.ShininessRange);
 
     public static MaterialParams Unpack(PackedMaterial packed) => new(
-        Albedo: packed.Albedo,
-        SpecularStrength: packed.NormalAlpha,
-        Shininess: packed.AlbedoAlpha * MaterialParams.ShininessRange);
+        Albedo: Color01.UnsafeFrom(packed.Albedo),
+        SpecularStrength: UnitInterval.UnsafeFrom(packed.NormalAlpha),
+        Shininess: Shininess.UnsafeFrom(packed.AlbedoAlpha * MaterialParams.ShininessRange));
 }

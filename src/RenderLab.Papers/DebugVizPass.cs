@@ -17,8 +17,8 @@ public static class DebugVizPass
     public static DebugVizPushConstants BuildPushConstants(bool depthMode, Camera camera) => new()
     {
         Mode = depthMode ? 1 : 0,
-        NearPlane = camera.NearPlane,
-        FarPlane = camera.FarPlane,
+        NearPlane = camera.Clip.Near,
+        FarPlane = camera.Clip.Far,
     };
 
     public static unsafe void Record(

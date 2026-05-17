@@ -16,6 +16,7 @@ public static class AssetLibraryScanner
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters = { new OptionalJsonConverter() },
     };
 
     public static AssetLibrary Scan(ProjectAssetIndex index)

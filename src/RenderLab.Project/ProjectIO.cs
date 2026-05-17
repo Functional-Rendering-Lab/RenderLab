@@ -13,11 +13,16 @@ namespace RenderLab.Project;
 /// </summary>
 public static class ProjectIO
 {
-    private static readonly JsonSerializerOptions JsonOptions = new()
+    internal static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
         WriteIndented = true,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+        Converters =
+        {
+            new OptionalJsonConverter(),
+            new JsonStringEnumConverter(JsonNamingPolicy.CamelCase),
+        },
     };
 
     /// <summary>Manifest filename at the root of every project folder.</summary>

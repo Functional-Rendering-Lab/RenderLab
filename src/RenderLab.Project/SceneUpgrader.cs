@@ -129,9 +129,9 @@ public static class SceneUpgrader
         var fileName = UniqueName(matDir, Sanitize(bp.Name), ".mat.json");
         var abs = Path.Combine(matDir, fileName);
 
-        AssetRef? albedoTex = null;
+        var albedoTex = Optional<AssetRef>.None;
         if (bp.AlbedoMap is int idx && idx >= 0 && idx < textureRefs.Length)
-            albedoTex = textureRefs[idx];
+            albedoTex = Optional<AssetRef>.Some(textureRefs[idx]);
 
         AssetLibraryScanner.WriteMaterial(abs, new MaterialFileDoc(
             Version: 1,

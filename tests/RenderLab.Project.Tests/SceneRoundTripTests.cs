@@ -1,5 +1,7 @@
 using System.Text.Json;
 using RenderLab.Project;
+using RenderLab.Scene;
+using RenderLab.Ui;
 
 namespace RenderLab.Project.Tests;
 
@@ -14,7 +16,7 @@ public class SceneRoundTripTests
             new PointLightDoc([2, 2, 2], [1, 1, 1], 5f),
             new DirectionalLightDoc([0, -1, 0], [1, 1, 1], 1f),
         ],
-        RenderConfig: new RenderConfigDoc("blinnPhong", false, "final", [0.05f, 0.05f, 0.06f]),
+        RenderConfig: new RenderConfigDoc(ShadingMode.BlinnPhong, false, VisualizationMode.Final, [0.05f, 0.05f, 0.06f]),
         Drawables:
         [
             new DrawableDoc("Sphere",

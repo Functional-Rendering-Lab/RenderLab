@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RenderLab.Ui;
 
 /// <summary>
@@ -7,6 +9,6 @@ namespace RenderLab.Ui;
 /// </summary>
 public enum BackgroundMode
 {
-    SolidColor,
+    [JsonStringEnumMemberName("solid")] SolidColor,
     AmbientGradient,
 }

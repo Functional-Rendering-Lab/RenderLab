@@ -11,5 +11,5 @@ namespace RenderLab.Scene;
 /// </summary>
 public sealed record PointLight(
     Vector3 Position,
-    Vector3 Color,
+    Color01 Color,
     Intensity Intensity) : Light;

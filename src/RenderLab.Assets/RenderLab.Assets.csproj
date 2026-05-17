@@ -6,6 +6,10 @@
     <PackageReference Include="StbImageSharp" Version="2.30.15" />
   </ItemGroup>
 
+  <ItemGroup>
+    <ProjectReference Include="..\RenderLab.Functional\RenderLab.Functional.csproj" />
+  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net9.0</TargetFramework>
     <LangVersion>13</LangVersion>

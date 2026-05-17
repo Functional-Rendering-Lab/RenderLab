@@ -29,7 +29,7 @@ public static class DeferredLighting
         var forward = Vector3.Normalize(camera.Target - camera.Position);
         var right = Vector3.Normalize(Vector3.Cross(forward, camera.Up));
         var upCam = Vector3.Cross(right, forward);
-        var tanHalfFovY = MathF.Tan(camera.FovRadians * 0.5f);
+        var tanHalfFovY = MathF.Tan(camera.Fov * 0.5f);
         var tanHalfFovX = tanHalfFovY * camera.AspectRatio;
 
         return new LightingPushConstants

@@ -11,9 +11,8 @@ public readonly record struct FreeCameraState(
     Vector3 Position,
     float Yaw,
     float Pitch,
-    float FovRadians,
-    float NearPlane,
-    float FarPlane);
+    Fov Fov,
+    ClipPlanes Clip);
 
 /// <summary>
 /// Input deltas consumed by <see cref="FreeCameraController"/>.
@@ -37,9 +36,8 @@ public static class FreeCameraController
         Position: new Vector3(2.1f, 1.85f, 2.1f),
         Yaw: MathF.PI / 4f,
         Pitch: -0.55f,
-        FovRadians: MathF.PI / 4f,
-        NearPlane: 0.1f,
-        FarPlane: 100f);
+        Fov: Fov.UnsafeFromRadians(MathF.PI / 4f),
+        Clip: ClipPlanes.UnsafeFrom(0.1f, 100f));
 
     public static FreeCameraState Update(FreeCameraState state, CameraInput input)
     {
@@ -70,11 +68,10 @@ public static class FreeCameraController
         return new Camera(
             Position: state.Position,
             Target: state.Position + forward,
-            Up: Vector3.UnitY,
-            FovRadians: state.FovRadians,
+            Up: UnitVector3.UnsafeFromUnit(Vector3.UnitY),
+            Fov: state.Fov,
             AspectRatio: aspectRatio,
-            NearPlane: state.NearPlane,
-            FarPlane: state.FarPlane);
+            Clip: state.Clip);
     }
 
     // yaw=0, pitch=0 looks down -Z. Positive pitch looks up; positive yaw turns right.

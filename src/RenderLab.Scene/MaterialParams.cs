@@ -9,15 +9,15 @@ namespace RenderLab.Scene;
 /// <c>gAlbedo.a</c> on write and reconstructed on read in <c>lighting.frag</c>.
 /// </summary>
 public sealed record MaterialParams(
-    Vector3 Albedo,
-    float SpecularStrength,
-    float Shininess)
+    Color01 Albedo,
+    UnitInterval SpecularStrength,
+    Shininess Shininess)
 {
     /// <summary>Maximum shininess representable in the GBuffer alpha encoding.</summary>
     public const float ShininessRange = 256f;
 
     public static readonly MaterialParams Default = new(
-        Albedo: new Vector3(0.6f, 0.6f, 0.6f),
-        SpecularStrength: 0.5f,
-        Shininess: 32f);
+        Albedo: Color01.UnsafeFrom(new Vector3(0.6f, 0.6f, 0.6f)),
+        SpecularStrength: UnitInterval.UnsafeFrom(0.5f),
+        Shininess: Shininess.UnsafeFrom(32f));
 }

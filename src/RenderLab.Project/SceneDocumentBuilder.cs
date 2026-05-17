@@ -60,34 +60,14 @@ public static class SceneDocumentBuilder
             Position: ToArray3(ui.Camera.Position),
             YawDeg: ui.Camera.Yaw * radToDeg,
             PitchDeg: ui.Camera.Pitch * radToDeg,
-            FovDeg: ui.Camera.FovRadians * radToDeg);
+            FovDeg: ui.Camera.Fov * radToDeg);
 
         var renderConfig = new RenderConfigDoc(
-            Shading: ui.Shading switch
-            {
-                ShadingMode.Lambertian => "lambertian",
-                ShadingMode.Phong      => "phong",
-                ShadingMode.BlinnPhong => "blinnPhong",
-                _                      => "blinnPhong",
-            },
+            Shading: ui.Shading,
             LightingOnly: ui.LightingOnly,
-            Viz: ui.Viz switch
-            {
-                VisualizationMode.Final    => "final",
-                VisualizationMode.Position => "position",
-                VisualizationMode.Normal   => "normal",
-                VisualizationMode.Albedo   => "albedo",
-                VisualizationMode.Depth    => "depth",
-                VisualizationMode.HDR      => "hdr",
-                _                          => "final",
-            },
+            Viz: ui.Viz,
             ClearColor: ToArray3(ui.ClearColor),
-            Background: ui.Background switch
-            {
-                BackgroundMode.SolidColor      => "solid",
-                BackgroundMode.AmbientGradient => "ambientGradient",
-                _                              => "solid",
-            });
+            Background: ui.Background);
 
         var doc = new SceneDocument(
             Version: 2,

@@ -52,8 +52,9 @@ public static class SceneLoader
             // AlbedoTex AssetRef back to a live TextureId. ResolveMaterial
             // already resolved any AlbedoTex above, so this is a cache
             // hit, not a re-upload.
-            if (resolver.LibraryEntry(d.Material.Guid) is MaterialAssetEntry m && m.AlbedoTex is AssetRef tr)
+            if (resolver.LibraryEntry(d.Material.Guid) is MaterialAssetEntry m && m.AlbedoTex.IsSome)
             {
+                var tr = m.AlbedoTex.Match(some: x => x, none: () => default!);
                 var tres = resolver.ResolveTexture(tr);
                 if (tres.IsOk)
                     sources = sources.WithTexture(tres.Match(ok: x => x, error: _ => default), tr);
@@ -63,7 +64,10 @@ public static class SceneLoader
                 LocalId: Guid.NewGuid(),
                 Name: d.Name,
                 Mesh: meshId,
-                Transform: new Transform(ToVec3(d.Transform.Position), ToQuat(d.Transform.Rotation), d.Transform.Scale),
+                Transform: new Transform(
+                    ToVec3(d.Transform.Position),
+                    UnitQuaternion.UnsafeFromUnit(ToQuat(d.Transform.Rotation)),
+                    PositiveScale.UnsafeFrom(d.Transform.Scale > 0f ? d.Transform.Scale : 1f)),
                 Material: matId));
         }
 
@@ -72,32 +76,14 @@ public static class SceneLoader
         {
             lights.Add(l switch
             {
-                PointLightDoc p => (Light)new PointLight(ToVec3(p.Position), ToVec3(p.Color), Intensity.Of(p.Intensity)),
+                PointLightDoc p => (Light)new PointLight(ToVec3(p.Position), Color01.UnsafeFrom(ToVec3(p.Color)), Intensity.Of(p.Intensity)),
                 DirectionalLightDoc d2 => new DirectionalLight(
                     Direction.UnsafeFromUnit(Vector3.Normalize(ToVec3(d2.Direction))),
-                    ToVec3(d2.Color),
+                    Color01.UnsafeFrom(ToVec3(d2.Color)),
                     Intensity.Of(d2.Intensity)),
                 _ => throw new InvalidOperationException($"Unknown light DU case {l.GetType().Name}"),
             });
         }
-
-        var shading = doc.RenderConfig.Shading.ToLowerInvariant() switch
-        {
-            "lambertian" => ShadingMode.Lambertian,
-            "phong"      => ShadingMode.Phong,
-            "blinnphong" => ShadingMode.BlinnPhong,
-            _            => ShadingMode.BlinnPhong,
-        };
-        var viz = doc.RenderConfig.Viz.ToLowerInvariant() switch
-        {
-            "final"    => VisualizationMode.Final,
-            "position" => VisualizationMode.Position,
-            "normal"   => VisualizationMode.Normal,
-            "albedo"   => VisualizationMode.Albedo,
-            "depth"    => VisualizationMode.Depth,
-            "hdr"      => VisualizationMode.HDR,
-            _          => VisualizationMode.Final,
-        };
 
         var camRad = MathF.PI / 180f;
         var camera = FreeCameraController.CreateDefault() with
@@ -105,27 +91,25 @@ public static class SceneLoader
             Position = ToVec3(doc.Camera.Position),
             Yaw = doc.Camera.YawDeg * camRad,
             Pitch = doc.Camera.PitchDeg * camRad,
-            FovRadians = doc.Camera.FovDeg * camRad,
+            Fov = Fov.UnsafeFromRadians(doc.Camera.FovDeg * camRad),
         };
 
         var ui = UiModel.Default with
         {
             Camera = camera,
             Lights = lights.ToImmutable(),
-            Ambient = new HemisphericAmbient(ToVec3(doc.Ambient.Sky), ToVec3(doc.Ambient.Ground)),
+            Ambient = new HemisphericAmbient(
+                Color01.UnsafeFrom(ToVec3(doc.Ambient.Sky)),
+                Color01.UnsafeFrom(ToVec3(doc.Ambient.Ground))),
             Drawables = drawables.ToImmutable(),
             Selection = drawables.Count > 0
                 ? new Selection.Drawable(drawables[0].LocalId)
                 : Selection.Empty,
-            Shading = shading,
+            Shading = doc.RenderConfig.Shading,
             LightingOnly = doc.RenderConfig.LightingOnly,
-            Viz = viz,
-            ClearColor = ToVec3(doc.RenderConfig.ClearColor),
-            Background = (doc.RenderConfig.Background ?? "solid").ToLowerInvariant() switch
-            {
-                "ambientgradient" => BackgroundMode.AmbientGradient,
-                _                 => BackgroundMode.SolidColor,
-            },
+            Viz = doc.RenderConfig.Viz,
+            ClearColor = Color01.UnsafeFrom(ToVec3(doc.RenderConfig.ClearColor)),
+            Background = doc.RenderConfig.Background ?? BackgroundMode.SolidColor,
         };
         return Result.Ok<LoadedScene, SceneLoadError>(new LoadedScene(ui, sources));
     }

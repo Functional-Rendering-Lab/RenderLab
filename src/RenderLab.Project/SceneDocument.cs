@@ -1,4 +1,6 @@
 using System.Text.Json.Serialization;
+using RenderLab.Scene;
+using RenderLab.Ui;
 
 namespace RenderLab.Project;
 
@@ -36,11 +38,11 @@ public sealed record DirectionalLightDoc(float[] Direction, float[] Color, float
 /// Per-scene rendering knobs not tied to any one drawable.
 /// </summary>
 public sealed record RenderConfigDoc(
-    string Shading,
+    ShadingMode Shading,
     bool LightingOnly,
-    string Viz,
+    VisualizationMode Viz,
     float[] ClearColor,
-    string? Background = null);
+    BackgroundMode? Background = null);
 
 /// <summary>
 /// One placed instance: a mesh + material reference and a transform. Both

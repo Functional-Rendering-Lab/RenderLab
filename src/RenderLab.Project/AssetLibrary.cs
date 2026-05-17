@@ -1,5 +1,6 @@
 using System.Collections.Immutable;
 using System.Text.Json;
+using RenderLab.Functional;
 
 namespace RenderLab.Project;
 
@@ -65,7 +66,7 @@ public sealed record MaterialAssetEntry(
     string Name,
     string ProjectRelativePath,
     MaterialParamsDoc Params,
-    AssetRef? AlbedoTex) : AssetEntry(Guid, AssetKind.Material, Name);
+    Optional<AssetRef> AlbedoTex) : AssetEntry(Guid, AssetKind.Material, Name);
 
 /// <summary>
 /// Material parameter values, serialised inside a <c>.mat.json</c> file.
@@ -81,7 +82,7 @@ public sealed record MaterialFileDoc(
     int Version,
     string Name,
     MaterialParamsDoc Params,
-    AssetRef? AlbedoTex);
+    Optional<AssetRef> AlbedoTex);
 
 /// <summary>On-disk shape of <c>*.proc.meta</c>: a self-describing procedural
 /// asset (no sibling sidecar).</summary>

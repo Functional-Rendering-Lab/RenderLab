@@ -9,5 +9,5 @@ namespace RenderLab.Scene;
 /// </summary>
 public sealed record DirectionalLight(
     Direction Direction,
-    System.Numerics.Vector3 Color,
+    Color01 Color,
     Intensity Intensity) : Light;

@@ -37,8 +37,8 @@ public class SceneDocumentBuilderTests
         var built = SceneDocumentBuilder.From(ui, catalog, sources);
         var doc = built.Match(ok: d => d, error: _ => null!);
 
-        Assert.Equal("blinnPhong", doc.RenderConfig.Shading);
-        Assert.Equal("final",      doc.RenderConfig.Viz);
+        Assert.Equal(ShadingMode.BlinnPhong, doc.RenderConfig.Shading);
+        Assert.Equal(VisualizationMode.Final, doc.RenderConfig.Viz);
         Assert.False(doc.RenderConfig.LightingOnly);
         Assert.Equal(60f, doc.Camera.FovDeg, 3);
 
@@ -68,9 +68,9 @@ public class SceneDocumentBuilderTests
         var sphereMesh = catalog.AddMesh("Sphere");
         var cubeMesh   = catalog.AddMesh("Cube");
         var sphereMat  = catalog.AddMaterial(new BlinnPhongMaterial(default, "SphereMat",
-            new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, TextureId.None));
+            new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, RenderLab.Functional.Optional<TextureId>.None));
         var cubeMat    = catalog.AddMaterial(new BlinnPhongMaterial(default, "CubeMat",
-            new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, TextureId.None));
+            new Vector3(0.6f, 0.6f, 0.6f), 0.5f, 32f, RenderLab.Functional.Optional<TextureId>.None));
 
         var refs = new SampleRefs(
             SphereMesh: new AssetRef(Guid.NewGuid()),
@@ -87,16 +87,16 @@ public class SceneDocumentBuilderTests
         var ui = UiModel.Default with
         {
             Lights = ImmutableArray.Create<Light>(
-                new PointLight(new Vector3(2, 3, 2), new Vector3(1, 1, 1), Intensity.Of(5f)),
+                new PointLight(new Vector3(2, 3, 2), Color01.UnsafeFrom(new Vector3(1, 1, 1)), Intensity.Of(5f)),
                 new DirectionalLight(
                     Direction.UnsafeFromUnit(Vector3.Normalize(new Vector3(0, -1, 0))),
-                    new Vector3(1, 1, 1), Intensity.Of(1f))),
+                    Color01.UnsafeFrom(new Vector3(1, 1, 1)), Intensity.Of(1f))),
             Drawables = ImmutableArray.Create(
                 new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMesh,
-                    new Transform(Vector3.Zero, Quaternion.Identity, 1f), sphereMat),
+                    new Transform(Vector3.Zero, UnitQuaternion.Identity, PositiveScale.One), sphereMat),
                 new EditableDrawable(Guid.NewGuid(), "Cube", cubeMesh,
-                    new Transform(new Vector3(2.5f, 0, 0), Quaternion.Identity, 1f), cubeMat)),
-            Camera = FreeCameraController.CreateDefault() with { FovRadians = 60f * (MathF.PI / 180f) },
+                    new Transform(new Vector3(2.5f, 0, 0), UnitQuaternion.Identity, PositiveScale.One), cubeMat)),
+            Camera = FreeCameraController.CreateDefault() with { Fov = Fov.FromDegrees(60f) },
         };
         return (catalog, ui, sources, refs);
     }

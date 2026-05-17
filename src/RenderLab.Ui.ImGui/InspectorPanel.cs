@@ -79,8 +79,15 @@ public static class InspectorPanel
         var eulerNext = DebugFields.DragVector3("Rotation (deg)", eulerCurrent, 1f);
         var scale = DebugFields.DragFloat("Scale", t.Scale, 0.02f, 0.1f, 5f);
 
-        var rotation = eulerNext == eulerCurrent ? t.Rotation : EulerDegToQuat(eulerNext);
-        var nextTransform = t with { Position = position, Rotation = rotation, Scale = scale };
+        var rotation = eulerNext == eulerCurrent
+            ? t.Rotation
+            : UnitQuaternion.UnsafeFromUnit(EulerDegToQuat(eulerNext));
+        var nextTransform = t with
+        {
+            Position = position,
+            Rotation = rotation,
+            Scale = PositiveScale.UnsafeFrom(MathF.Max(scale, 1e-4f)),
+        };
         if (!nextTransform.Equals(t))
             dispatch(new UiMsg.SetDrawableTransform(id, nextTransform));
 
@@ -125,7 +132,7 @@ public static class InspectorPanel
                 var position  = DebugFields.DragVector3("Position", p.Position, 0.05f);
                 var color     = DebugFields.ColorEdit("Color", p.Color);
                 var intensity = DebugFields.DragFloat("Intensity", p.Intensity.Value, 0.05f, 0f, 100f);
-                var next = new PointLight(position, color, Intensity.Of(MathF.Max(intensity, 0f)));
+                var next = new PointLight(position, Color01.UnsafeFrom(color), Intensity.Of(MathF.Max(intensity, 0f)));
                 if (!next.Equals(p)) dispatch(new UiMsg.UpdateLight(index, next));
                 break;
             }
@@ -137,7 +144,7 @@ public static class InspectorPanel
                 Direction nextDir;
                 try { nextDir = Direction.Create(rawDir); }
                 catch (ArgumentException) { nextDir = d.Direction; }
-                var next = new DirectionalLight(nextDir, color, Intensity.Of(MathF.Max(intensity, 0f)));
+                var next = new DirectionalLight(nextDir, Color01.UnsafeFrom(color), Intensity.Of(MathF.Max(intensity, 0f)));
                 if (!next.Equals(d)) dispatch(new UiMsg.UpdateLight(index, next));
                 break;
             }
@@ -183,17 +190,23 @@ public static class InspectorPanel
         for (int i = 0; i < textures.Length; i++) items[i + 1] = textures[i].Name;
 
         int selected = 0;
-        if (m.AlbedoTex is AssetRef cur && string.IsNullOrEmpty(cur.Sub))
+        if (m.AlbedoTex.IsSome)
         {
-            for (int i = 0; i < textures.Length; i++)
-                if (textures[i].Guid == cur.Guid) { selected = i + 1; break; }
+            var cur = m.AlbedoTex.Match(some: x => x, none: () => default!);
+            if (string.IsNullOrEmpty(cur.Sub))
+            {
+                for (int i = 0; i < textures.Length; i++)
+                    if (textures[i].Guid == cur.Guid) { selected = i + 1; break; }
+            }
         }
         int nextSelected = DebugFields.ComboEdit("Albedo Tex", selected, items);
         bool texChanged = nextSelected != selected;
 
-        AssetRef? nextTex = m.AlbedoTex;
+        var nextTex = m.AlbedoTex;
         if (texChanged)
-            nextTex = nextSelected == 0 ? null : new AssetRef(textures[nextSelected - 1].Guid);
+            nextTex = nextSelected == 0
+                ? RenderLab.Functional.Optional<AssetRef>.None
+                : RenderLab.Functional.Optional<AssetRef>.Some(new AssetRef(textures[nextSelected - 1].Guid));
 
         if (albedoChanged || specChanged || shinChanged || texChanged)
         {
@@ -202,8 +215,8 @@ public static class InspectorPanel
                 Albedo: new[] { nextAlbedo.X, nextAlbedo.Y, nextAlbedo.Z },
                 SpecularStrength: nextSpec,
                 Shininess: nextShininess,
-                AlbedoTexGuid: nextTex?.Guid,
-                AlbedoTexSub: nextTex?.Sub));
+                AlbedoTexGuid: nextTex.Match<Guid?>(some: x => x.Guid, none: () => null),
+                AlbedoTexSub: nextTex.Match<string?>(some: x => x.Sub, none: () => null)));
         }
     }
 
@@ -310,13 +323,17 @@ public static class InspectorPanel
     {
         ImGui.SeparatorText("Environment");
 
-        var sky    = DebugFields.ColorEdit("Sky",    model.Ambient.Sky);
-        var ground = DebugFields.ColorEdit("Ground", model.Ambient.Ground);
-        if (sky != model.Ambient.Sky || ground != model.Ambient.Ground)
-            dispatch(new UiMsg.UpdateAmbient(new HemisphericAmbient(sky, ground)));
+        Vector3 currentSky = model.Ambient.Sky;
+        Vector3 currentGround = model.Ambient.Ground;
+        var sky    = DebugFields.ColorEdit("Sky",    currentSky);
+        var ground = DebugFields.ColorEdit("Ground", currentGround);
+        if (sky != currentSky || ground != currentGround)
+            dispatch(new UiMsg.UpdateAmbient(new HemisphericAmbient(
+                Color01.UnsafeFrom(sky), Color01.UnsafeFrom(ground))));
 
-        var clear = DebugFields.ColorEdit("Clear color", model.ClearColor);
-        if (clear != model.ClearColor) dispatch(new UiMsg.SetClearColor(clear));
+        Vector3 currentClear = model.ClearColor;
+        var clear = DebugFields.ColorEdit("Clear color", currentClear);
+        if (clear != currentClear) dispatch(new UiMsg.SetClearColor(clear));
     }
 
     // ─── Shared combos / helpers ───────────────────────────────────────

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace RenderLab.Ui;
 
 /// <summary>
@@ -12,5 +14,5 @@ public enum VisualizationMode
     Normal,
     Albedo,
     Depth,
-    HDR,
+    [JsonStringEnumMemberName("hdr")] HDR,
 }

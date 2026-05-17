@@ -126,7 +126,7 @@ public static class AssetBrowserPanel
 
     private static string SecondaryLabel(AssetEntry e) => e switch
     {
-        MaterialAssetEntry m  => $"  {(m.AlbedoTex is null ? "no tex" : "tex")}  {m.ProjectRelativePath}",
+        MaterialAssetEntry m  => $"  {(m.AlbedoTex.IsNone ? "no tex" : "tex")}  {m.ProjectRelativePath}",
         FileAssetEntry f      => $"  {f.ProjectRelativePath}",
         ProceduralAssetEntry p => $"  ({p.Generator})",
         _                     => string.Empty,

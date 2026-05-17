@@ -43,7 +43,7 @@ public class AssetLibraryScannerTests
                 Version: 1,
                 Name: "Stone",
                 Params: new MaterialParamsDoc([0.7f, 0.7f, 0.7f], 0.5f, 32f),
-                AlbedoTex: null));
+                AlbedoTex: RenderLab.Functional.Optional<AssetRef>.None));
 
             var idx = ProjectAssetScanner.Scan(temp);
             var lib = AssetLibraryScanner.Scan(idx);
@@ -52,7 +52,7 @@ public class AssetLibraryScannerTests
             var m = Assert.IsType<MaterialAssetEntry>(mat);
             Assert.Equal("Stone", m.Name);
             Assert.Equal(0.5f, m.Params.SpecularStrength);
-            Assert.Null(m.AlbedoTex);
+            Assert.True(m.AlbedoTex.IsNone);
         }
         finally { Directory.Delete(temp, recursive: true); }
     }

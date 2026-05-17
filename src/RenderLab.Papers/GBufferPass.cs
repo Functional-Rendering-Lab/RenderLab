@@ -7,6 +7,8 @@ using RenderLab.Gpu.Assets;
 using RenderLab.Scene;
 using Buffer = Silk.NET.Vulkan.Buffer;
 
+using RenderLab.Functional;
+
 namespace RenderLab.Papers;
 
 /// <summary>
@@ -34,7 +36,10 @@ public static class GBufferPass
     /// </summary>
     public static MaterialParams ToParams(MaterialAsset asset) => asset switch
     {
-        BlinnPhongMaterial bp => new MaterialParams(bp.Albedo, bp.SpecularStrength, bp.Shininess),
+        BlinnPhongMaterial bp => new MaterialParams(
+            Color01.UnsafeFrom(bp.Albedo),
+            UnitInterval.UnsafeFrom(Math.Clamp(bp.SpecularStrength, 0f, 1f)),
+            Shininess.UnsafeFrom(Math.Clamp(bp.Shininess, 0f, MaterialParams.ShininessRange))),
         _                     => MaterialParams.Default,
     };
 
@@ -53,7 +58,7 @@ public static class GBufferPass
         foreach (var d in drawables)
         {
             var asset = catalog.GetMaterial(d.Material);
-            var albedoMap = asset is BlinnPhongMaterial bp ? bp.AlbedoMap : TextureId.None;
+            var albedoMap = asset is BlinnPhongMaterial bp ? bp.AlbedoMap.ValueOr(TextureId.None) : TextureId.None;
             var pc = BuildPushConstants(d.Transform, camera, ToParams(asset));
             vk.CmdPushConstants(cb, r.PipelineLayout,
                 ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,

@@ -10,7 +10,7 @@ public class MaterialPackingTests
     {
         var packed = MaterialPacking.Pack(MaterialParams.Default);
 
-        Assert.Equal(MaterialParams.Default.Albedo, packed.Albedo);
+        Assert.Equal(MaterialParams.Default.Albedo.Value, packed.Albedo);
         Assert.InRange(packed.NormalAlpha, 0f, 1f);
         Assert.InRange(packed.AlbedoAlpha, 0f, 1f);
     }
@@ -19,14 +19,14 @@ public class MaterialPackingTests
     public void RoundTrip_PreservesAllFields()
     {
         var original = new MaterialParams(
-            Albedo: new Vector3(0.7f, 0.2f, 0.4f),
-            SpecularStrength: 0.65f,
-            Shininess: 96f);
+            Albedo: Color01.Of(0.7f, 0.2f, 0.4f),
+            SpecularStrength: UnitInterval.Of(0.65f),
+            Shininess: Shininess.Of(96f));
 
         var roundTripped = MaterialPacking.Unpack(MaterialPacking.Pack(original));
 
-        Assert.Equal(original.Albedo, roundTripped.Albedo);
-        Assert.Equal(original.SpecularStrength, roundTripped.SpecularStrength, 5);
-        Assert.Equal(original.Shininess, roundTripped.Shininess, 3);
+        Assert.Equal(original.Albedo.Value, roundTripped.Albedo.Value);
+        Assert.Equal((float)original.SpecularStrength, (float)roundTripped.SpecularStrength, 5);
+        Assert.Equal((float)original.Shininess, (float)roundTripped.Shininess, 3);
     }
 }

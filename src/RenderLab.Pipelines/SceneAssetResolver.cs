@@ -195,12 +195,13 @@ public sealed class SceneAssetResolver
             return Result.Error<MaterialId, SceneLoadError>(
                 new SceneLoadError.FileSourceFailed(r.ToString(), $"entry is not a Material ({entry.Kind})"));
 
-        var albedoMap = TextureId.None;
-        if (m.AlbedoTex is AssetRef tr)
+        var albedoMap = Optional<TextureId>.None;
+        if (m.AlbedoTex.IsSome)
         {
+            var tr = m.AlbedoTex.Match(some: x => x, none: () => default!);
             var tres = ResolveTexture(tr);
             if (tres.IsError) return Result.Error<MaterialId, SceneLoadError>(tres.Match<SceneLoadError>(_ => null!, e => e));
-            albedoMap = tres.Match(ok: x => x, error: _ => default);
+            albedoMap = Optional<TextureId>.Some(tres.Match(ok: x => x, error: _ => default));
         }
 
         var albedo = m.Params.Albedo;

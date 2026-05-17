@@ -10,7 +10,7 @@ public class LightPackingTests
     {
         var light = new PointLight(
             Position: new Vector3(1f, 2f, 3f),
-            Color: new Vector3(0.4f, 0.5f, 0.6f),
+            Color: Color01.UnsafeFrom(new Vector3(0.4f, 0.5f, 0.6f)),
             Intensity: Intensity.Of(7f));
 
         var packed = LightPacking.Pack(light);
@@ -25,7 +25,7 @@ public class LightPackingTests
     {
         var light = new DirectionalLight(
             Direction: Direction.Create(new Vector3(0f, -1f, 0f)),
-            Color: new Vector3(1f, 0.95f, 0.85f),
+            Color: Color01.UnsafeFrom(new Vector3(1f, 0.95f, 0.85f)),
             Intensity: Intensity.Of(2f));
 
         var packed = LightPacking.Pack(light);
@@ -41,10 +41,10 @@ public class LightPackingTests
     {
         var lights = new Light[]
         {
-            new DirectionalLight(Direction.Create(new Vector3(0f, -1f, 0f)), new Vector3(1f, 1f, 1f), Intensity.Of(1f)),
-            new PointLight(new Vector3(1, 0, 0), new Vector3(1, 0, 0), Intensity.Of(1f)),
-            new DirectionalLight(Direction.Create(new Vector3(1f, 0f, 0f)), new Vector3(0f, 1f, 0f), Intensity.Of(0.5f)),
-            new PointLight(new Vector3(0, 1, 0), new Vector3(0, 1, 0), Intensity.Of(2f)),
+            new DirectionalLight(Direction.Create(new Vector3(0f, -1f, 0f)), Color01.UnsafeFrom(new Vector3(1f, 1f, 1f)), Intensity.Of(1f)),
+            new PointLight(new Vector3(1, 0, 0), Color01.UnsafeFrom(new Vector3(1, 0, 0)), Intensity.Of(1f)),
+            new DirectionalLight(Direction.Create(new Vector3(1f, 0f, 0f)), Color01.UnsafeFrom(new Vector3(0f, 1f, 0f)), Intensity.Of(0.5f)),
+            new PointLight(new Vector3(0, 1, 0), Color01.UnsafeFrom(new Vector3(0, 1, 0)), Intensity.Of(2f)),
         };
         var dest = new GpuLight[lights.Length];
 
@@ -68,8 +68,8 @@ public class LightPackingTests
     {
         var lights = new Light[]
         {
-            new PointLight(new Vector3(1, 0, 0), new Vector3(1, 0, 0), Intensity.Of(1f)),
-            new PointLight(new Vector3(0, 1, 0), new Vector3(0, 1, 0), Intensity.Of(2f)),
+            new PointLight(new Vector3(1, 0, 0), Color01.UnsafeFrom(new Vector3(1, 0, 0)), Intensity.Of(1f)),
+            new PointLight(new Vector3(0, 1, 0), Color01.UnsafeFrom(new Vector3(0, 1, 0)), Intensity.Of(2f)),
         };
         var sentinel = new GpuLight(
             new Vector4(99f, 99f, 99f, 99f),
@@ -90,8 +90,8 @@ public class LightPackingTests
     {
         var lights = new Light[]
         {
-            new PointLight(Vector3.Zero, Vector3.One, Intensity.Of(1f)),
-            new PointLight(Vector3.One, Vector3.One, Intensity.Of(1f)),
+            new PointLight(Vector3.Zero, Color01.UnsafeFrom(Vector3.One), Intensity.Of(1f)),
+            new PointLight(Vector3.One, Color01.UnsafeFrom(Vector3.One), Intensity.Of(1f)),
         };
         var dest = new GpuLight[1];
 

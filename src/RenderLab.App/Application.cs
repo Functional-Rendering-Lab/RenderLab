@@ -467,7 +467,10 @@ public sealed class Application : IDisposable
                 resolver.Bind(projectRoot, assetLibrary, _procedural);
                 return r.Drawables.Select(d => new UiMsg.AddDrawable(
                     d.Name, d.Mesh,
-                    new Transform(d.Position, d.Rotation, d.Scale),
+                    new Transform(
+                        d.Position,
+                        UnitQuaternion.UnsafeFromUnit(d.Rotation),
+                        PositiveScale.UnsafeFrom(d.Scale > 0f ? d.Scale : 1f)),
                     d.Material));
             },
             error: e =>
@@ -584,7 +587,7 @@ public sealed class Application : IDisposable
             Console.WriteLine("  remove texture: built-in white fallback is protected");
             return;
         }
-        int refs = assets.AllMaterials.OfType<BlinnPhongMaterial>().Count(m => m.AlbedoMap == id);
+        int refs = assets.AllMaterials.OfType<BlinnPhongMaterial>().Count(m => m.AlbedoMap.ValueOr(TextureId.None) == id);
         if (refs > 0)
         {
             Console.WriteLine($"  remove texture #{id.Value}: refused, {refs} material(s) still reference it");
@@ -615,7 +618,9 @@ public sealed class Application : IDisposable
             return;
         }
 
-        AssetRef? albedoTexRef = msg.AlbedoTexGuid is Guid g ? new AssetRef(g, msg.AlbedoTexSub) : null;
+        Optional<AssetRef> albedoTexRef = msg.AlbedoTexGuid is Guid g
+            ? Optional<AssetRef>.Some(new AssetRef(g, msg.AlbedoTexSub))
+            : Optional<AssetRef>.None;
 
         var resolved = ProjectIO.ResolveProjectPath(projectRoot, entry.ProjectRelativePath);
         if (resolved.IsError)
@@ -655,14 +660,16 @@ public sealed class Application : IDisposable
         if (!assets.TryGetMaterial(id, out var existing) || existing is not BlinnPhongMaterial bp) return;
 
         var albedoMap = bp.AlbedoMap;
-        if (albedoTexRef is AssetRef texRef)
+        if (albedoTexRef.IsSome)
         {
+            var texRef = albedoTexRef.Match(some: x => x, none: () => default!);
+            albedoMap = Optional<TextureId>.None;
             foreach (var kv in sources.TextureSources)
-                if (kv.Value == texRef) { albedoMap = kv.Key; break; }
+                if (kv.Value == texRef) { albedoMap = Optional<TextureId>.Some(kv.Key); break; }
         }
         else
         {
-            albedoMap = TextureId.None;
+            albedoMap = Optional<TextureId>.None;
         }
 
         var albedo = msg.Albedo;
@@ -996,7 +1003,7 @@ public sealed class Application : IDisposable
                 // this texture, regardless of whether the active scene has
                 // it loaded.
                 foreach (var e in assetLibrary.ByGuid.Values)
-                    if (e is MaterialAssetEntry m && m.AlbedoTex is AssetRef tr && tr.Guid == guid) count++;
+                    if (e is MaterialAssetEntry m && m.AlbedoTex.IsSome && m.AlbedoTex.Match(some: x => x.Guid, none: () => Guid.Empty) == guid) count++;
                 break;
         }
         return count;
@@ -1168,7 +1175,7 @@ public sealed class Application : IDisposable
             Version: 1,
             Name: "Sphere",
             Params: new MaterialParamsDoc([0.6f, 0.6f, 0.6f], 0.5f, 32f),
-            AlbedoTex: null));
+            AlbedoTex: Optional<AssetRef>.None));
         var matMeta = AssetMetaIO.ReadOrCreate(matPath, AssetKind.Material);
 
         var doc = new SceneDocument(
@@ -1176,7 +1183,7 @@ public sealed class Application : IDisposable
             Camera: new CameraDoc([2.1f, 1.85f, 2.1f], 45f, -31.5f, 45f),
             Ambient: new AmbientDoc([0.4f, 0.5f, 0.7f], [0.18f, 0.16f, 0.14f]),
             Lights: [new PointLightDoc([2f, 3f, 2f], [1f, 0.95f, 0.9f], 5f)],
-            RenderConfig: new RenderConfigDoc("blinnPhong", false, "final", [0f, 0f, 0f]),
+            RenderConfig: new RenderConfigDoc(ShadingMode.BlinnPhong, false, VisualizationMode.Final, [0f, 0f, 0f]),
             Drawables: [new DrawableDoc("Sphere",
                 Mesh: new AssetRef(meshGuid),
                 Material: new AssetRef(matMeta.Guid),

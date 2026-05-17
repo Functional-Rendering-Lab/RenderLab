@@ -343,8 +343,8 @@ public sealed class AssetRegistry : IAssetCatalog, IGpuAssetResolver, IDisposabl
         foreach (var m in import.Materials)
         {
             var albedoMap = m.AlbedoTextureIndex >= 0 && m.AlbedoTextureIndex < textureIds.Count
-                ? textureIds[m.AlbedoTextureIndex]
-                : TextureId.None;
+                ? RenderLab.Functional.Optional<TextureId>.Some(textureIds[m.AlbedoTextureIndex])
+                : RenderLab.Functional.Optional<TextureId>.None;
             RegisterMaterial(m.Name, id => new BlinnPhongMaterial(
                 id, m.Name, m.Albedo, m.SpecularStrength, m.Shininess, albedoMap)).Match(
                 ok: id => { materialIds.Add(id); return 0; },
