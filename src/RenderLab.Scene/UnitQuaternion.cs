@@ -1,4 +1,5 @@
 using System.Numerics;
+using RenderLab.Functional;
 
 namespace RenderLab.Scene;
 
@@ -16,12 +17,14 @@ public readonly record struct UnitQuaternion
 
     public static UnitQuaternion Identity { get; } = new(Quaternion.Identity);
 
-    public static UnitQuaternion Create(Quaternion q)
+    public static Result<UnitQuaternion, ValueError> Create(Quaternion q)
     {
         float lenSq = q.LengthSquared();
-        if (lenSq < 1e-12f || !float.IsFinite(lenSq))
-            throw new ArgumentException("UnitQuaternion cannot be the zero or non-finite quaternion.", nameof(q));
-        return new UnitQuaternion(Quaternion.Normalize(q));
+        if (!float.IsFinite(lenSq))
+            return Result.Error<UnitQuaternion, ValueError>(new ValueError.NotFinite("UnitQuaternion"));
+        if (lenSq < 1e-12f)
+            return Result.Error<UnitQuaternion, ValueError>(new ValueError.ZeroVector("UnitQuaternion"));
+        return Result.Ok<UnitQuaternion, ValueError>(new UnitQuaternion(Quaternion.Normalize(q)));
     }
 
     public static UnitQuaternion UnsafeFromUnit(Quaternion unit) => new(unit);

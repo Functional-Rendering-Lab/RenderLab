@@ -1,3 +1,5 @@
+using RenderLab.Functional;
+
 namespace RenderLab.Scene;
 
 /// <summary>
@@ -13,11 +15,13 @@ public readonly record struct UnitInterval
     public static UnitInterval Zero { get; } = new(0f);
     public static UnitInterval One { get; } = new(1f);
 
-    public static UnitInterval Of(float v)
+    public static Result<UnitInterval, ValueError> Of(float v)
     {
-        if (!float.IsFinite(v) || v < 0f || v > 1f)
-            throw new ArgumentOutOfRangeException(nameof(v), v, "UnitInterval must be in [0, 1].");
-        return new UnitInterval(v);
+        if (!float.IsFinite(v))
+            return Result.Error<UnitInterval, ValueError>(new ValueError.NotFinite("UnitInterval"));
+        if (v < 0f || v > 1f)
+            return Result.Error<UnitInterval, ValueError>(new ValueError.OutOfRange("UnitInterval", v, "[0, 1]"));
+        return Result.Ok<UnitInterval, ValueError>(new UnitInterval(v));
     }
 
     public static UnitInterval UnsafeFrom(float v) => new(v);

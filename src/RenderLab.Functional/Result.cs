@@ -1,3 +1,5 @@
+using System.Collections.Immutable;
+
 namespace RenderLab.Functional;
 
 /// <summary>
@@ -56,4 +58,24 @@ public static class Result
 
     public static Result<T, TError> Error<T, TError>(TError error)
         where T : notnull where TError : notnull => Result<T, TError>.Error(error);
+
+    /// <summary>
+    /// Maps <paramref name="source"/> through <paramref name="f"/> and short-circuits
+    /// on the first error. On success, the resulting array preserves input order;
+    /// on failure, the first error is returned.
+    /// </summary>
+    public static Result<ImmutableArray<T>, TError> Traverse<TSource, T, TError>(
+        IEnumerable<TSource> source, Func<TSource, Result<T, TError>> f)
+        where T : notnull where TError : notnull
+    {
+        var builder = ImmutableArray.CreateBuilder<T>();
+        foreach (var s in source)
+        {
+            var r = f(s);
+            if (r.IsError)
+                return Result<ImmutableArray<T>, TError>.Error(r.Match(_ => default!, e => e));
+            builder.Add(r.Match(x => x, _ => default!));
+        }
+        return Result<ImmutableArray<T>, TError>.Ok(builder.ToImmutable());
+    }
 }

@@ -19,9 +19,9 @@ public class MaterialPackingTests
     public void RoundTrip_PreservesAllFields()
     {
         var original = new MaterialParams(
-            Albedo: Color01.Of(0.7f, 0.2f, 0.4f),
-            SpecularStrength: UnitInterval.Of(0.65f),
-            Shininess: Shininess.Of(96f));
+            Albedo: Color01.UnsafeFrom(new Vector3(0.7f, 0.2f, 0.4f)),
+            SpecularStrength: UnitInterval.UnsafeFrom(0.65f),
+            Shininess: Shininess.UnsafeFrom(96f));
 
         var roundTripped = MaterialPacking.Unpack(MaterialPacking.Pack(original));
 

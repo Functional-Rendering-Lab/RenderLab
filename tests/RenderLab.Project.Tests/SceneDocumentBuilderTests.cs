@@ -87,16 +87,16 @@ public class SceneDocumentBuilderTests
         var ui = UiModel.Default with
         {
             Lights = ImmutableArray.Create<Light>(
-                new PointLight(new Vector3(2, 3, 2), Color01.UnsafeFrom(new Vector3(1, 1, 1)), Intensity.Of(5f)),
+                new PointLight(new Vector3(2, 3, 2), Color01.UnsafeFrom(new Vector3(1, 1, 1)), Intensity.UnsafeFrom(5f)),
                 new DirectionalLight(
                     Direction.UnsafeFromUnit(Vector3.Normalize(new Vector3(0, -1, 0))),
-                    Color01.UnsafeFrom(new Vector3(1, 1, 1)), Intensity.Of(1f))),
+                    Color01.UnsafeFrom(new Vector3(1, 1, 1)), Intensity.UnsafeFrom(1f))),
             Drawables = ImmutableArray.Create(
                 new EditableDrawable(Guid.NewGuid(), "Sphere", sphereMesh,
                     new Transform(Vector3.Zero, UnitQuaternion.Identity, PositiveScale.One), sphereMat),
                 new EditableDrawable(Guid.NewGuid(), "Cube", cubeMesh,
                     new Transform(new Vector3(2.5f, 0, 0), UnitQuaternion.Identity, PositiveScale.One), cubeMat)),
-            Camera = FreeCameraController.CreateDefault() with { Fov = Fov.FromDegrees(60f) },
+            Camera = FreeCameraController.CreateDefault() with { Fov = Fov.UnsafeFromRadians(60f * MathF.PI / 180f) },
         };
         return (catalog, ui, sources, refs);
     }

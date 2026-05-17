@@ -132,7 +132,7 @@ public static class InspectorPanel
                 var position  = DebugFields.DragVector3("Position", p.Position, 0.05f);
                 var color     = DebugFields.ColorEdit("Color", p.Color);
                 var intensity = DebugFields.DragFloat("Intensity", p.Intensity.Value, 0.05f, 0f, 100f);
-                var next = new PointLight(position, Color01.UnsafeFrom(color), Intensity.Of(MathF.Max(intensity, 0f)));
+                var next = new PointLight(position, Color01.UnsafeFrom(color), Intensity.UnsafeFrom(MathF.Max(intensity, 0f)));
                 if (!next.Equals(p)) dispatch(new UiMsg.UpdateLight(index, next));
                 break;
             }
@@ -141,10 +141,8 @@ public static class InspectorPanel
                 var rawDir    = DebugFields.DragVector3("Direction", d.Direction.Value, 0.02f);
                 var color     = DebugFields.ColorEdit("Color", d.Color);
                 var intensity = DebugFields.DragFloat("Intensity", d.Intensity.Value, 0.05f, 0f, 100f);
-                Direction nextDir;
-                try { nextDir = Direction.Create(rawDir); }
-                catch (ArgumentException) { nextDir = d.Direction; }
-                var next = new DirectionalLight(nextDir, Color01.UnsafeFrom(color), Intensity.Of(MathF.Max(intensity, 0f)));
+                var nextDir = Direction.Create(rawDir).Match(ok: x => x, error: _ => d.Direction);
+                var next = new DirectionalLight(nextDir, Color01.UnsafeFrom(color), Intensity.UnsafeFrom(MathF.Max(intensity, 0f)));
                 if (!next.Equals(d)) dispatch(new UiMsg.UpdateLight(index, next));
                 break;
             }

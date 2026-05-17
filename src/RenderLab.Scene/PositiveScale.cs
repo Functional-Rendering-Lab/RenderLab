@@ -1,3 +1,5 @@
+using RenderLab.Functional;
+
 namespace RenderLab.Scene;
 
 /// <summary>
@@ -13,11 +15,13 @@ public readonly record struct PositiveScale
 
     public static PositiveScale One { get; } = new(1f);
 
-    public static PositiveScale Of(float v)
+    public static Result<PositiveScale, ValueError> Of(float v)
     {
-        if (!float.IsFinite(v) || v <= 0f)
-            throw new ArgumentOutOfRangeException(nameof(v), v, "PositiveScale must be > 0 and finite.");
-        return new PositiveScale(v);
+        if (!float.IsFinite(v))
+            return Result.Error<PositiveScale, ValueError>(new ValueError.NotFinite("PositiveScale"));
+        if (v <= 0f)
+            return Result.Error<PositiveScale, ValueError>(new ValueError.OutOfRange("PositiveScale", v, "> 0"));
+        return Result.Ok<PositiveScale, ValueError>(new PositiveScale(v));
     }
 
     public static PositiveScale UnsafeFrom(float v) => new(v);

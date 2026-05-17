@@ -1,3 +1,5 @@
+using RenderLab.Functional;
+
 namespace RenderLab.Scene;
 
 /// <summary>
@@ -15,11 +17,14 @@ public readonly record struct ClipPlanes
         Far = far;
     }
 
-    public static ClipPlanes Of(float near, float far)
+    public static Result<ClipPlanes, ValueError> Of(float near, float far)
     {
-        if (!float.IsFinite(near) || !float.IsFinite(far) || near <= 0f || far <= near)
-            throw new ArgumentException($"ClipPlanes require 0 < near < far (got near={near}, far={far}).");
-        return new ClipPlanes(near, far);
+        if (!float.IsFinite(near) || !float.IsFinite(far))
+            return Result.Error<ClipPlanes, ValueError>(new ValueError.NotFinite("ClipPlanes"));
+        if (near <= 0f || far <= near)
+            return Result.Error<ClipPlanes, ValueError>(
+                new ValueError.OutOfRange("ClipPlanes", near, $"0 < near < far (got near={near}, far={far})"));
+        return Result.Ok<ClipPlanes, ValueError>(new ClipPlanes(near, far));
     }
 
     public static ClipPlanes UnsafeFrom(float near, float far) => new(near, far);

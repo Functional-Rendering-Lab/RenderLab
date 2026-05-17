@@ -29,19 +29,19 @@ public sealed record UiModel(
             new PointLight(
                 Position: new Vector3(2, 3, 2),
                 Color: Color01.UnsafeFrom(new Vector3(1f, 0.95f, 0.9f)),
-                Intensity: Intensity.Of(5f)),
+                Intensity: Intensity.UnsafeFrom(5f)),
             new PointLight(
                 Position: new Vector3(-2.5f, 0.5f, 1.5f),
                 Color: Color01.UnsafeFrom(new Vector3(0.2f, 0.5f, 1.0f)),
-                Intensity: Intensity.Of(1.5f)),
+                Intensity: Intensity.UnsafeFrom(1.5f)),
             new PointLight(
                 Position: new Vector3(2.5f, 0.5f, 1.5f),
                 Color: Color01.UnsafeFrom(new Vector3(1.0f, 0.4f, 0.2f)),
-                Intensity: Intensity.Of(1.5f)),
+                Intensity: Intensity.UnsafeFrom(1.5f)),
             new DirectionalLight(
                 Direction: Direction.UnsafeFromUnit(Vector3.Normalize(new Vector3(-0.4f, -1f, -0.3f))),
                 Color: Color01.UnsafeFrom(new Vector3(1.0f, 0.95f, 0.85f)),
-                Intensity: Intensity.Of(1.0f))),
+                Intensity: Intensity.UnsafeFrom(1.0f))),
         Ambient: HemisphericAmbient.Default,
         Drawables: ImmutableArray<EditableDrawable>.Empty,
         Selection: Selection.Empty,
@@ -55,11 +55,11 @@ public sealed record UiModel(
     public static PointLight DefaultNewPointLight => new(
         Position: new Vector3(0f, 2f, 2f),
         Color: Color01.UnsafeFrom(new Vector3(1f, 1f, 1f)),
-        Intensity: Intensity.Of(1f));
+        Intensity: Intensity.UnsafeFrom(1f));
 
     /// <summary>Default seed for a new directional light added through the lighting panel.</summary>
     public static DirectionalLight DefaultNewDirectionalLight => new(
         Direction: Direction.UnsafeFromUnit(Vector3.Normalize(new Vector3(0f, -1f, -0.2f))),
         Color: Color01.UnsafeFrom(new Vector3(1f, 1f, 1f)),
-        Intensity: Intensity.Of(1f));
+        Intensity: Intensity.UnsafeFrom(1f));
 }

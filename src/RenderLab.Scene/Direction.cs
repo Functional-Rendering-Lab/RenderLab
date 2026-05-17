@@ -1,4 +1,5 @@
 using System.Numerics;
+using RenderLab.Functional;
 
 namespace RenderLab.Scene;
 
@@ -14,11 +15,11 @@ public readonly record struct Direction
 
     private Direction(Vector3 unit) => Value = unit;
 
-    public static Direction Create(Vector3 v)
+    public static Result<Direction, ValueError> Create(Vector3 v)
     {
         if (v.LengthSquared() < 1e-12f)
-            throw new ArgumentException("Direction cannot be the zero vector.", nameof(v));
-        return new Direction(Vector3.Normalize(v));
+            return Result.Error<Direction, ValueError>(new ValueError.ZeroVector("Direction"));
+        return Result.Ok<Direction, ValueError>(new Direction(Vector3.Normalize(v)));
     }
 
     /// <summary>

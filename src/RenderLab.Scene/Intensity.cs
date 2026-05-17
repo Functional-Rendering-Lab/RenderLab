@@ -1,3 +1,5 @@
+using RenderLab.Functional;
+
 namespace RenderLab.Scene;
 
 /// <summary>
@@ -11,12 +13,16 @@ public readonly record struct Intensity
 
     private Intensity(float v) => Value = v;
 
-    public static Intensity Of(float v)
+    public static Result<Intensity, ValueError> Of(float v)
     {
-        if (v < 0f || float.IsNaN(v))
-            throw new ArgumentOutOfRangeException(nameof(v), v, "Intensity must be ≥ 0.");
-        return new Intensity(v);
+        if (float.IsNaN(v) || !float.IsFinite(v))
+            return Result.Error<Intensity, ValueError>(new ValueError.NotFinite("Intensity"));
+        if (v < 0f)
+            return Result.Error<Intensity, ValueError>(new ValueError.OutOfRange("Intensity", v, ">= 0"));
+        return Result.Ok<Intensity, ValueError>(new Intensity(v));
     }
+
+    public static Intensity UnsafeFrom(float v) => new(v);
 
     public static implicit operator float(Intensity i) => i.Value;
 }

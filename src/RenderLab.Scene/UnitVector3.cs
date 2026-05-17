@@ -1,4 +1,5 @@
 using System.Numerics;
+using RenderLab.Functional;
 
 namespace RenderLab.Scene;
 
@@ -14,11 +15,11 @@ public readonly record struct UnitVector3
 
     private UnitVector3(Vector3 unit) => Value = unit;
 
-    public static UnitVector3 Create(Vector3 v)
+    public static Result<UnitVector3, ValueError> Create(Vector3 v)
     {
         if (v.LengthSquared() < 1e-12f)
-            throw new ArgumentException("UnitVector3 cannot be the zero vector.", nameof(v));
-        return new UnitVector3(Vector3.Normalize(v));
+            return Result.Error<UnitVector3, ValueError>(new ValueError.ZeroVector("UnitVector3"));
+        return Result.Ok<UnitVector3, ValueError>(new UnitVector3(Vector3.Normalize(v)));
     }
 
     public static UnitVector3 UnsafeFromUnit(Vector3 unit) => new(unit);

@@ -30,21 +30,37 @@ public static class SceneLoader
 
     public static Result<LoadedScene, SceneLoadError> Load(
         SceneDocument doc,
-        SceneAssetResolver resolver)
+        SceneAssetResolver resolver) =>
+        BuildDrawables(resolver, doc.Drawables)
+            .Bind(ds => BuildLights(doc.Lights)
+                .Map(ls => (ds.Drawables, ds.Sources, Lights: ls)))
+            .Bind(t => BuildCamera(doc.Camera)
+                .Map(cam => (t.Drawables, t.Sources, t.Lights, Camera: cam)))
+            .Bind(t => BuildAmbient(doc.Ambient)
+                .Map(amb => (t.Drawables, t.Sources, t.Lights, t.Camera, Ambient: amb)))
+            .Bind(t => BuildClearColor(doc.RenderConfig.ClearColor)
+                .Map(cc => Assemble(t.Drawables, t.Sources, t.Lights, t.Camera, t.Ambient, cc, doc.RenderConfig)));
+
+    private static Result<(ImmutableArray<EditableDrawable> Drawables, SceneAssetSources Sources), SceneLoadError>
+        BuildDrawables(SceneAssetResolver resolver, DrawableDoc[] docs)
     {
         var sources = SceneAssetSources.Empty;
+        var drawables = ImmutableArray.CreateBuilder<EditableDrawable>(docs.Length);
 
-        var drawables = ImmutableArray.CreateBuilder<EditableDrawable>(doc.Drawables.Length);
-        foreach (var d in doc.Drawables)
+        foreach (var d in docs)
         {
             var meshR = resolver.ResolveMesh(d.Mesh);
-            if (meshR.IsError) return Result.Error<LoadedScene, SceneLoadError>(meshR.Match<SceneLoadError>(_ => null!, e => e));
-            var meshId = meshR.Match(ok: x => x, error: _ => default);
+            if (meshR.IsError)
+                return Result.Error<(ImmutableArray<EditableDrawable>, SceneAssetSources), SceneLoadError>(
+                    meshR.Match(_ => default!, e => e));
+            var meshId = meshR.Match(x => x, _ => default);
             sources = sources.WithMesh(meshId, d.Mesh);
 
             var matR = resolver.ResolveMaterial(d.Material);
-            if (matR.IsError) return Result.Error<LoadedScene, SceneLoadError>(matR.Match<SceneLoadError>(_ => null!, e => e));
-            var matId = matR.Match(ok: x => x, error: _ => default);
+            if (matR.IsError)
+                return Result.Error<(ImmutableArray<EditableDrawable>, SceneAssetSources), SceneLoadError>(
+                    matR.Match(_ => default!, e => e));
+            var matId = matR.Match(x => x, _ => default);
             sources = sources.WithMaterial(matId, d.Material);
 
             // Record the material's texture ref → id mapping too, so the
@@ -57,61 +73,118 @@ public static class SceneLoader
                 var tr = m.AlbedoTex.Match(some: x => x, none: () => default!);
                 var tres = resolver.ResolveTexture(tr);
                 if (tres.IsOk)
-                    sources = sources.WithTexture(tres.Match(ok: x => x, error: _ => default), tr);
+                    sources = sources.WithTexture(tres.Match(x => x, _ => default), tr);
             }
+
+            var transformR = BuildTransform(d.Transform);
+            if (transformR.IsError)
+                return Result.Error<(ImmutableArray<EditableDrawable>, SceneAssetSources), SceneLoadError>(
+                    transformR.Match(_ => default!, e => e));
 
             drawables.Add(new EditableDrawable(
                 LocalId: Guid.NewGuid(),
                 Name: d.Name,
                 Mesh: meshId,
-                Transform: new Transform(
-                    ToVec3(d.Transform.Position),
-                    UnitQuaternion.UnsafeFromUnit(ToQuat(d.Transform.Rotation)),
-                    PositiveScale.UnsafeFrom(d.Transform.Scale > 0f ? d.Transform.Scale : 1f)),
+                Transform: transformR.Match(x => x, _ => default!),
                 Material: matId));
         }
 
-        var lights = ImmutableArray.CreateBuilder<Light>(doc.Lights.Length);
-        foreach (var l in doc.Lights)
+        return Result.Ok<(ImmutableArray<EditableDrawable>, SceneAssetSources), SceneLoadError>(
+            (drawables.ToImmutable(), sources));
+    }
+
+    private static Result<Transform, SceneLoadError> BuildTransform(TransformDoc t)
+    {
+        var rot = UnitQuaternion.Create(ToQuat(t.Rotation))
+            .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("transform.rotation", e.Message));
+        if (rot.IsError) return Result.Error<Transform, SceneLoadError>(rot.Match(_ => default!, e => e));
+
+        var scale = PositiveScale.Of(t.Scale)
+            .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("transform.scale", e.Message));
+        if (scale.IsError) return Result.Error<Transform, SceneLoadError>(scale.Match(_ => default!, e => e));
+
+        return Result.Ok<Transform, SceneLoadError>(new Transform(
+            ToVec3(t.Position),
+            rot.Match(x => x, _ => default),
+            scale.Match(x => x, _ => default)));
+    }
+
+    private static Result<ImmutableArray<Light>, SceneLoadError> BuildLights(LightDoc[] docs) =>
+        Result.Traverse<LightDoc, Light, SceneLoadError>(docs, BuildLight);
+
+    private static Result<Light, SceneLoadError> BuildLight(LightDoc l)
+    {
+        switch (l)
         {
-            lights.Add(l switch
-            {
-                PointLightDoc p => (Light)new PointLight(ToVec3(p.Position), Color01.UnsafeFrom(ToVec3(p.Color)), Intensity.Of(p.Intensity)),
-                DirectionalLightDoc d2 => new DirectionalLight(
-                    Direction.UnsafeFromUnit(Vector3.Normalize(ToVec3(d2.Direction))),
-                    Color01.UnsafeFrom(ToVec3(d2.Color)),
-                    Intensity.Of(d2.Intensity)),
-                _ => throw new InvalidOperationException($"Unknown light DU case {l.GetType().Name}"),
-            });
+            case PointLightDoc p:
+                return Color01.Of(ToVec3(p.Color))
+                    .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("light.color", e.Message))
+                    .Bind(color => Intensity.Of(p.Intensity)
+                        .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("light.intensity", e.Message))
+                        .Map(intensity => (Light)new PointLight(ToVec3(p.Position), color, intensity)));
+            case DirectionalLightDoc d:
+                return Direction.Create(ToVec3(d.Direction))
+                    .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("light.direction", e.Message))
+                    .Bind(dir => Color01.Of(ToVec3(d.Color))
+                        .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("light.color", e.Message))
+                        .Bind(color => Intensity.Of(d.Intensity)
+                            .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("light.intensity", e.Message))
+                            .Map(intensity => (Light)new DirectionalLight(dir, color, intensity))));
+            default:
+                return Result.Error<Light, SceneLoadError>(new SceneLoadError.InvalidLightKind(l.GetType().Name));
         }
+    }
 
+    private static Result<FreeCameraState, SceneLoadError> BuildCamera(CameraDoc c)
+    {
         var camRad = MathF.PI / 180f;
-        var camera = FreeCameraController.CreateDefault() with
+        var fov = Fov.FromRadians(c.FovDeg * camRad)
+            .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("camera.fovDeg", e.Message));
+        return fov.Map(f => FreeCameraController.CreateDefault() with
         {
-            Position = ToVec3(doc.Camera.Position),
-            Yaw = doc.Camera.YawDeg * camRad,
-            Pitch = doc.Camera.PitchDeg * camRad,
-            Fov = Fov.UnsafeFromRadians(doc.Camera.FovDeg * camRad),
-        };
+            Position = ToVec3(c.Position),
+            Yaw = c.YawDeg * camRad,
+            Pitch = c.PitchDeg * camRad,
+            Fov = f,
+        });
+    }
 
+    private static Result<HemisphericAmbient, SceneLoadError> BuildAmbient(AmbientDoc a) =>
+        Color01.Of(ToVec3(a.Sky))
+            .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("ambient.sky", e.Message))
+            .Bind(sky => Color01.Of(ToVec3(a.Ground))
+                .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("ambient.ground", e.Message))
+                .Map(ground => new HemisphericAmbient(sky, ground)));
+
+    private static Result<Color01, SceneLoadError> BuildClearColor(float[] arr) =>
+        Color01.Of(ToVec3(arr))
+            .MapError<SceneLoadError>(e => new SceneLoadError.InvalidValue("renderConfig.clearColor", e.Message));
+
+    private static LoadedScene Assemble(
+        ImmutableArray<EditableDrawable> drawables,
+        SceneAssetSources sources,
+        ImmutableArray<Light> lights,
+        FreeCameraState camera,
+        HemisphericAmbient ambient,
+        Color01 clearColor,
+        RenderConfigDoc rc)
+    {
         var ui = UiModel.Default with
         {
             Camera = camera,
-            Lights = lights.ToImmutable(),
-            Ambient = new HemisphericAmbient(
-                Color01.UnsafeFrom(ToVec3(doc.Ambient.Sky)),
-                Color01.UnsafeFrom(ToVec3(doc.Ambient.Ground))),
-            Drawables = drawables.ToImmutable(),
-            Selection = drawables.Count > 0
+            Lights = lights,
+            Ambient = ambient,
+            Drawables = drawables,
+            Selection = drawables.Length > 0
                 ? new Selection.Drawable(drawables[0].LocalId)
                 : Selection.Empty,
-            Shading = doc.RenderConfig.Shading,
-            LightingOnly = doc.RenderConfig.LightingOnly,
-            Viz = doc.RenderConfig.Viz,
-            ClearColor = Color01.UnsafeFrom(ToVec3(doc.RenderConfig.ClearColor)),
-            Background = doc.RenderConfig.Background ?? BackgroundMode.SolidColor,
+            Shading = rc.Shading,
+            LightingOnly = rc.LightingOnly,
+            Viz = rc.Viz,
+            ClearColor = clearColor,
+            Background = rc.Background ?? BackgroundMode.SolidColor,
         };
-        return Result.Ok<LoadedScene, SceneLoadError>(new LoadedScene(ui, sources));
+        return new LoadedScene(ui, sources);
     }
 
     private static Vector3 ToVec3(float[] a) =>

@@ -1,3 +1,5 @@
+using RenderLab.Functional;
+
 namespace RenderLab.Scene;
 
 /// <summary>
@@ -10,12 +12,14 @@ public readonly record struct Shininess
 
     private Shininess(float v) => Value = v;
 
-    public static Shininess Of(float v)
+    public static Result<Shininess, ValueError> Of(float v)
     {
-        if (!float.IsFinite(v) || v < 0f || v > MaterialParams.ShininessRange)
-            throw new ArgumentOutOfRangeException(nameof(v), v,
-                $"Shininess must be in [0, {MaterialParams.ShininessRange}].");
-        return new Shininess(v);
+        if (!float.IsFinite(v))
+            return Result.Error<Shininess, ValueError>(new ValueError.NotFinite("Shininess"));
+        if (v < 0f || v > MaterialParams.ShininessRange)
+            return Result.Error<Shininess, ValueError>(
+                new ValueError.OutOfRange("Shininess", v, $"[0, {MaterialParams.ShininessRange}]"));
+        return Result.Ok<Shininess, ValueError>(new Shininess(v));
     }
 
     public static Shininess UnsafeFrom(float v) => new(v);

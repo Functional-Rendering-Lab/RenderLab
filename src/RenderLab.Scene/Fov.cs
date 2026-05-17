@@ -1,3 +1,5 @@
+using RenderLab.Functional;
+
 namespace RenderLab.Scene;
 
 /// <summary>
@@ -9,14 +11,17 @@ public readonly record struct Fov
 
     private Fov(float v) => Radians = v;
 
-    public static Fov FromRadians(float radians)
+    public static Result<Fov, ValueError> FromRadians(float radians)
     {
-        if (!float.IsFinite(radians) || radians <= 0f || radians >= MathF.PI)
-            throw new ArgumentOutOfRangeException(nameof(radians), radians, "Fov must be in (0, π) radians.");
-        return new Fov(radians);
+        if (!float.IsFinite(radians))
+            return Result.Error<Fov, ValueError>(new ValueError.NotFinite("Fov"));
+        if (radians <= 0f || radians >= MathF.PI)
+            return Result.Error<Fov, ValueError>(new ValueError.OutOfRange("Fov", radians, "(0, π)"));
+        return Result.Ok<Fov, ValueError>(new Fov(radians));
     }
 
-    public static Fov FromDegrees(float degrees) => FromRadians(degrees * MathF.PI / 180f);
+    public static Result<Fov, ValueError> FromDegrees(float degrees) =>
+        FromRadians(degrees * MathF.PI / 180f);
 
     public static Fov UnsafeFromRadians(float radians) => new(radians);
 
