@@ -21,6 +21,7 @@ If a doc exists for the area you are touching, read it before proposing changes.
 | `docs/ADDING-A-PAPER.md` | Adding a new paper implementation |
 | `docs/PROJECT-MODEL.md` | How `code/projects/` + `IPipeline` + `Application` replace the old per-demo composition roots |
 | `docs/QOL-STRATEGY.md` | Tooling, developer experience, debug workflows |
+| `docs/HOT-SHADER-RELOAD.md` | How shader hot reload works, what it covers, what it doesn't |
 | `docs/DOCUMENTATION-RULES.md` | Writing or editing any doc or XML comment |
 
 If you cannot find an answer in `docs/`, read the relevant code — do not guess.

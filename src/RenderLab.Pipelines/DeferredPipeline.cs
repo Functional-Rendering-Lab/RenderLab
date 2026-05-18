@@ -90,16 +90,6 @@ public sealed class DeferredPipeline : IPipeline
 
         Console.WriteLine("RenderLab — Deferred Pipeline");
 
-        var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
-        byte[] LoadSpv(string name) => File.ReadAllBytes(Path.Combine(shaderDir, name));
-
-        var gbufferVert    = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.vert.spv"));
-        var gbufferFrag    = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.frag.spv"));
-        var fsVert         = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("fullscreen.vert.spv"));
-        var lightingFrag   = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("lighting.frag.spv"));
-        var tonemapFrag    = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("tonemap.frag.spv"));
-        var debugVizFrag   = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("debugviz.frag.spv"));
-
         gbufferRenderPass  = VulkanPipeline.CreateGBufferRenderPass(gpu);
         lightingRenderPass = VulkanPipeline.CreateOffscreenRenderPass(gpu, VulkanPipeline.HdrFormat);
         tonemapRenderPass  = VulkanPipeline.CreateRenderPass(gpu);
@@ -109,41 +99,9 @@ public sealed class DeferredPipeline : IPipeline
         lightStorageDsLayout = VulkanDescriptors.CreateLightStorageLayout(gpu);
         MaterialDsLayout     = VulkanDescriptors.CreateSamplerLayout(gpu);
 
-        gbufferPipeline = VulkanPipeline.CreateGBufferPipeline(
-            gpu, gbufferRenderPass, gbufferVert, gbufferFrag,
-            Vertex3D.BindingDescription, Vertex3D.AttributeDescriptions,
-            (uint)Marshal.SizeOf<GBufferPushConstants>(),
-            MaterialDsLayout,
-            out gbufferPipelineLayout);
-
         materials = new MaterialDescriptors(gpu, assets, MaterialDsLayout, maxTextures: 16);
 
-        lightingPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, lightingRenderPass,
-            new[] { gbufferDsLayout, lightStorageDsLayout },
-            fsVert, lightingFrag,
-            (uint)Marshal.SizeOf<LightingPushConstants>(), ShaderStageFlags.FragmentBit,
-            out lightingPipelineLayout);
-
-        tonemapPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, tonemapRenderPass, singleDsLayout, fsVert, tonemapFrag,
-            0, ShaderStageFlags.None,
-            out tonemapPipelineLayout);
-
-        debugVizPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, tonemapRenderPass, singleDsLayout, fsVert, debugVizFrag,
-            (uint)Marshal.SizeOf<DebugVizPushConstants>(), ShaderStageFlags.FragmentBit,
-            out debugVizPipelineLayout);
-
-        unsafe
-        {
-            gpu.Vk.DestroyShaderModule(gpu.Device, gbufferVert, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, gbufferFrag, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, fsVert, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, lightingFrag, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, tonemapFrag, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, debugVizFrag, null);
-        }
+        BuildPipelines();
 
         sampler = VulkanImage.CreateSampler(gpu);
         CreateLightBuffers();
@@ -182,6 +140,63 @@ public sealed class DeferredPipeline : IPipeline
         Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
         Console.WriteLine($"  Passes: {string.Join(" -> ", resolvedPasses.Select(p => p.Declaration.Name))}");
         Console.WriteLine($"  Barriers: {resolvedPasses.Sum(p => p.BarriersBefore.Length)}");
+    }
+
+    unsafe void BuildPipelines()
+    {
+        var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
+        byte[] LoadSpv(string name) => File.ReadAllBytes(Path.Combine(shaderDir, name));
+
+        var gbufferVert    = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.vert.spv"));
+        var gbufferFrag    = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.frag.spv"));
+        var fsVert         = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("fullscreen.vert.spv"));
+        var lightingFrag   = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("lighting.frag.spv"));
+        var tonemapFrag    = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("tonemap.frag.spv"));
+        var debugVizFrag   = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("debugviz.frag.spv"));
+
+        gbufferPipeline = VulkanPipeline.CreateGBufferPipeline(
+            gpu, gbufferRenderPass, gbufferVert, gbufferFrag,
+            Vertex3D.BindingDescription, Vertex3D.AttributeDescriptions,
+            (uint)Marshal.SizeOf<GBufferPushConstants>(),
+            MaterialDsLayout,
+            out gbufferPipelineLayout);
+
+        lightingPipeline = VulkanPipeline.CreateFullscreenPipeline(
+            gpu, lightingRenderPass,
+            new[] { gbufferDsLayout, lightStorageDsLayout },
+            fsVert, lightingFrag,
+            (uint)Marshal.SizeOf<LightingPushConstants>(), ShaderStageFlags.FragmentBit,
+            out lightingPipelineLayout);
+
+        tonemapPipeline = VulkanPipeline.CreateFullscreenPipeline(
+            gpu, tonemapRenderPass, singleDsLayout, fsVert, tonemapFrag,
+            0, ShaderStageFlags.None,
+            out tonemapPipelineLayout);
+
+        debugVizPipeline = VulkanPipeline.CreateFullscreenPipeline(
+            gpu, tonemapRenderPass, singleDsLayout, fsVert, debugVizFrag,
+            (uint)Marshal.SizeOf<DebugVizPushConstants>(), ShaderStageFlags.FragmentBit,
+            out debugVizPipelineLayout);
+
+        gpu.Vk.DestroyShaderModule(gpu.Device, gbufferVert, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, gbufferFrag, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, fsVert, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, lightingFrag, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, tonemapFrag, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, debugVizFrag, null);
+    }
+
+    public unsafe void ReloadShaders(GpuState _)
+    {
+        gpu.Vk.DestroyPipeline(gpu.Device, gbufferPipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, gbufferPipelineLayout, null);
+        gpu.Vk.DestroyPipeline(gpu.Device, lightingPipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, lightingPipelineLayout, null);
+        gpu.Vk.DestroyPipeline(gpu.Device, tonemapPipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, tonemapPipelineLayout, null);
+        gpu.Vk.DestroyPipeline(gpu.Device, debugVizPipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, debugVizPipelineLayout, null);
+        BuildPipelines();
     }
 
     public void RecreateTransient(GpuState _)

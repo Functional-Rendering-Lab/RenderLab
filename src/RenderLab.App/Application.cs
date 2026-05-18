@@ -49,6 +49,7 @@ public sealed class Application : IDisposable
     RenderPass overlayRenderPass;
     Framebuffer[] overlayFramebuffers = [];
     IPipeline pipeline = null!;
+    ShaderHotReload hotReload = null!;
     ProjectManifest manifest = null!;
     string projectRoot = "";
     string activeScenePath = "";
@@ -127,6 +128,7 @@ public sealed class Application : IDisposable
         else
         {
             vk.DeviceWaitIdle(gpu.Device);
+            hotReload.OnReload = null;
             pipeline.Dispose();
             // Project switch: wipe the registry and resolver caches so
             // the next project starts from built-ins. Scene-to-scene
@@ -144,6 +146,7 @@ public sealed class Application : IDisposable
         activeScenePath = "";
         pipeline.Initialize(gpu!, assets, overlayRenderPass);
         pipeline.RecreateTransient(gpu!);
+        hotReload.OnReload = g => pipeline.ReloadShaders(g);
 
         var availableScenes = manifest.Scenes.Length > 0
             ? ImmutableArray.CreateRange(manifest.Scenes)
@@ -228,6 +231,7 @@ public sealed class Application : IDisposable
         overlayRenderPass = VulkanPipeline.CreateOverlayRenderPass(gpu);
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
         imgui = VulkanImGui.Create(gpu, overlayRenderPass);
+        hotReload = new ShaderHotReload(msg => Console.WriteLine($"  shader: {msg}"));
     }
 
     void Loop()
@@ -256,9 +260,13 @@ public sealed class Application : IDisposable
             lastFrameTime = currentTime;
 
             assets.Tick();
+            hotReload.Pump(gpu);
 
             var input = window.PollInput();
             var keyboard = window.PollKeyboard();
+
+            foreach (var (key, down) in keyboard.KeyEvents)
+                if (down && key == Key.F5) hotReload.RequestForceReload();
 
             var cameraInput = new CameraInput(
                 YawDelta:  input.LeftButtonDown ? -input.MouseDelta.X * RotateSensitivity : 0,
@@ -1259,6 +1267,7 @@ public sealed class Application : IDisposable
     {
         if (gpu is null) { window?.Dispose(); return; }
         vk.DeviceWaitIdle(gpu.Device);
+        hotReload?.Dispose();
         pipeline?.Dispose();
         imgui?.Dispose();
         if (overlayFramebuffers.Length > 0)

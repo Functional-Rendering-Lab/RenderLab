@@ -90,4 +90,14 @@ public interface IPipeline : IDisposable
     /// that the registry persists ids across scenes. Default no-op.
     /// </summary>
     void ResetSceneState() { }
+
+    /// <summary>
+    /// Rebuild VkPipelines from freshly-compiled SPIR-V on disk. Engine has
+    /// already <c>vkDeviceWaitIdle</c>'d; the pipeline destroys its previous
+    /// <c>VkPipeline</c>/<c>PipelineLayout</c> handles and recreates them
+    /// from the same <c>shaders/</c> directory used at startup. Render
+    /// passes, descriptor layouts, and transient images are preserved.
+    /// Default no-op for pipelines that opt out of hot reload.
+    /// </summary>
+    void ReloadShaders(GpuState gpu) { }
 }

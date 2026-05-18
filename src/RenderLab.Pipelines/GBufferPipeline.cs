@@ -93,13 +93,6 @@ public sealed class GBufferPipeline : IPipeline
         (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit, mesh.Vertices);
         (indexBuffer, indexAlloc)   = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit, mesh.Indices);
 
-        var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
-        byte[] LoadSpv(string name) => File.ReadAllBytes(Path.Combine(shaderDir, name));
-        var gbufferVert = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.vert.spv"));
-        var gbufferFrag = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.frag.spv"));
-        var fsVert      = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("fullscreen.vert.spv"));
-        var debugFrag   = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("debugviz.frag.spv"));
-
         gbufferRenderPass   = VulkanPipeline.CreateGBufferRenderPass(gpu);
         swapchainRenderPass = VulkanPipeline.CreateRenderPass(gpu);
 
@@ -107,6 +100,24 @@ public sealed class GBufferPipeline : IPipeline
         materialDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
 
         materials = new MaterialDescriptors(gpu, assets, materialDsLayout, maxTextures: 4);
+
+        BuildPipelines();
+
+        cameraState = FreeCameraController.CreateDefault();
+        sampler = VulkanImage.CreateSampler(gpu);
+
+        Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
+        Console.WriteLine("  No render graph — manual barriers between passes");
+    }
+
+    unsafe void BuildPipelines()
+    {
+        var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
+        byte[] LoadSpv(string name) => File.ReadAllBytes(Path.Combine(shaderDir, name));
+        var gbufferVert = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.vert.spv"));
+        var gbufferFrag = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("gbuffer.frag.spv"));
+        var fsVert      = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("fullscreen.vert.spv"));
+        var debugFrag   = VulkanPipeline.CreateShaderModule(gpu, LoadSpv("debugviz.frag.spv"));
 
         gbufferPipeline = VulkanPipeline.CreateGBufferPipeline(
             gpu, gbufferRenderPass, gbufferVert, gbufferFrag,
@@ -120,19 +131,19 @@ public sealed class GBufferPipeline : IPipeline
             (uint)Marshal.SizeOf<DebugVizPushConstants>(), ShaderStageFlags.FragmentBit,
             out debugVizPipelineLayout);
 
-        unsafe
-        {
-            gpu.Vk.DestroyShaderModule(gpu.Device, gbufferVert, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, gbufferFrag, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, fsVert, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, debugFrag, null);
-        }
+        gpu.Vk.DestroyShaderModule(gpu.Device, gbufferVert, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, gbufferFrag, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, fsVert, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, debugFrag, null);
+    }
 
-        cameraState = FreeCameraController.CreateDefault();
-        sampler = VulkanImage.CreateSampler(gpu);
-
-        Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
-        Console.WriteLine("  No render graph — manual barriers between passes");
+    public unsafe void ReloadShaders(GpuState _)
+    {
+        gpu.Vk.DestroyPipeline(gpu.Device, gbufferPipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, gbufferPipelineLayout, null);
+        gpu.Vk.DestroyPipeline(gpu.Device, debugVizPipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, debugVizPipelineLayout, null);
+        BuildPipelines();
     }
 
     public void RecreateTransient(GpuState _)

@@ -42,21 +42,8 @@ public sealed class TrianglePipeline : IPipeline
         Console.WriteLine("RenderLab — Minimal Pipeline (Triangle)");
         Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
 
-        var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
-        var vertModule = VulkanPipeline.CreateShaderModule(gpu,
-            File.ReadAllBytes(Path.Combine(shaderDir, "triangle.vert.spv")));
-        var fragModule = VulkanPipeline.CreateShaderModule(gpu,
-            File.ReadAllBytes(Path.Combine(shaderDir, "triangle.frag.spv")));
-
         renderPass = VulkanPipeline.CreateRenderPass(gpu);
-        pipeline = VulkanPipeline.CreateGraphicsPipeline(
-            gpu, renderPass, vertModule, fragModule, out pipelineLayout);
-
-        unsafe
-        {
-            gpu.Vk.DestroyShaderModule(gpu.Device, vertModule, null);
-            gpu.Vk.DestroyShaderModule(gpu.Device, fragModule, null);
-        }
+        BuildPipelines();
 
         ReadOnlySpan<Vertex> vertices =
         [
@@ -68,6 +55,28 @@ public sealed class TrianglePipeline : IPipeline
             gpu, BufferUsageFlags.VertexBufferBit, vertices);
 
         Console.WriteLine("  Vertices: 3 (RGB triangle)");
+    }
+
+    unsafe void BuildPipelines()
+    {
+        var shaderDir = Path.Combine(AppContext.BaseDirectory, "shaders");
+        var vertModule = VulkanPipeline.CreateShaderModule(gpu,
+            File.ReadAllBytes(Path.Combine(shaderDir, "triangle.vert.spv")));
+        var fragModule = VulkanPipeline.CreateShaderModule(gpu,
+            File.ReadAllBytes(Path.Combine(shaderDir, "triangle.frag.spv")));
+
+        pipeline = VulkanPipeline.CreateGraphicsPipeline(
+            gpu, renderPass, vertModule, fragModule, out pipelineLayout);
+
+        gpu.Vk.DestroyShaderModule(gpu.Device, vertModule, null);
+        gpu.Vk.DestroyShaderModule(gpu.Device, fragModule, null);
+    }
+
+    public unsafe void ReloadShaders(GpuState _)
+    {
+        gpu.Vk.DestroyPipeline(gpu.Device, pipeline, null);
+        gpu.Vk.DestroyPipelineLayout(gpu.Device, pipelineLayout, null);
+        BuildPipelines();
     }
 
     public void RecreateTransient(GpuState _)
