@@ -35,10 +35,7 @@ public static class DeferredLighting
         return new LightingPushConstants
         {
             CameraPos = new Vector4(camera.Position, 1f),
-            ShadingMode = (int)mode,
-            LightingOnly = lightingOnly ? 1 : 0,
-            LightCount = lightCount,
-            BackgroundMode = backgroundMode,
+            Flags = new Vector4((int)mode, lightingOnly ? 1 : 0, lightCount, backgroundMode),
             AmbientSky = new Vector4(ambient.Sky, 0f),
             AmbientGround = new Vector4(ambient.Ground, 0f),
             CamRight = new Vector4(right * tanHalfFovX, 0f),

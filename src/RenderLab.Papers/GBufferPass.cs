@@ -19,10 +19,9 @@ namespace RenderLab.Papers;
 public static class GBufferPass
 {
     public static GBufferPushConstants BuildPushConstants(
-        Transform mesh, Camera camera, MaterialParams material) => new()
+        Transform mesh, MaterialParams material) => new()
     {
         Model = mesh.Matrix,
-        ViewProj = camera.ViewProjectionMatrix,
         Albedo = material.Albedo,
         SpecularStrength = material.SpecularStrength,
         Shininess = material.Shininess,
@@ -51,15 +50,18 @@ public static class GBufferPass
         IAssetCatalog catalog,
         IGpuAssetResolver resolver,
         MaterialDescriptors materials,
-        Camera camera)
+        DescriptorSet cameraSet)
     {
         BeginPass(vk, cb, r);
+
+        vk.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, r.PipelineLayout,
+            1, 1, &cameraSet, 0, null);
 
         foreach (var d in drawables)
         {
             var asset = catalog.GetMaterial(d.Material);
             var albedoMap = asset is BlinnPhongMaterial bp ? bp.AlbedoMap.ValueOr(TextureId.None) : TextureId.None;
-            var pc = BuildPushConstants(d.Transform, camera, ToParams(asset));
+            var pc = BuildPushConstants(d.Transform, ToParams(asset));
             vk.CmdPushConstants(cb, r.PipelineLayout,
                 ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
                 0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
@@ -85,6 +87,7 @@ public static class GBufferPass
         GBufferPassResources r,
         GBufferPushConstants pc,
         DescriptorSet materialSet,
+        DescriptorSet cameraSet,
         Buffer vertexBuffer,
         Buffer indexBuffer,
         uint indexCount)
@@ -95,8 +98,9 @@ public static class GBufferPass
             ShaderStageFlags.VertexBit | ShaderStageFlags.FragmentBit,
             0, (uint)Marshal.SizeOf<GBufferPushConstants>(), &pc);
 
+        var sets = stackalloc DescriptorSet[2] { materialSet, cameraSet };
         vk.CmdBindDescriptorSets(cb, PipelineBindPoint.Graphics, r.PipelineLayout,
-            0, 1, &materialSet, 0, null);
+            0, 2, sets, 0, null);
 
         var vb = vertexBuffer;
         ulong offset = 0;

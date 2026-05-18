@@ -6,12 +6,14 @@ namespace RenderLab.Gpu;
 /// <summary>
 /// Per-draw constants for the G-Buffer geometry pass. Layout must match the
 /// <c>layout(push_constant)</c> block in <c>gbuffer.vert</c> / <c>gbuffer.frag</c>.
+/// View-projection lives in a per-frame UBO (set=1, binding=0) instead of
+/// here, so the block stays at 84 bytes — under the 128-byte
+/// <c>maxPushConstantSize</c> guaranteed by every Vulkan implementation.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct GBufferPushConstants
 {
     public Matrix4x4 Model;
-    public Matrix4x4 ViewProj;
     public Vector3 Albedo;
     public float SpecularStrength;
     public float Shininess;
@@ -20,19 +22,19 @@ public struct GBufferPushConstants
 /// <summary>
 /// Per-frame constants for the deferred lighting fullscreen pass. Per-light data
 /// (position/direction, color, intensity, type tag) lives in the lighting SSBO
-/// at set 1, binding 0; only the count crosses through here. Hemispheric ambient
-/// is sky/ground colors. <see cref="Pad0"/> aligns the following <see cref="Vector4"/>
-/// to 16 bytes so the C# layout matches the std430 push-constant block in
-/// <c>lighting.frag</c>.
+/// at set 1, binding 0; only the count crosses through here. <see cref="Flags"/>
+/// packs four ints (shading mode, lighting-only, light count, background mode)
+/// into a single <see cref="Vector4"/> so the whole struct stays at 112 bytes —
+/// under the 128-byte <c>maxPushConstantSize</c> guaranteed by every Vulkan
+/// implementation. The shader reads the lanes back with <c>int(flags.x)</c> etc.
+/// Layout matches the <c>layout(push_constant)</c> block in <c>lighting.frag</c>.
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
 public struct LightingPushConstants
 {
     public Vector4 CameraPos;
-    public int ShadingMode;     // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
-    public int LightingOnly;    // 1 = drop albedo factor (ambient stays on)
-    public int LightCount;
-    public int BackgroundMode;  // 0 = solid clear, 1 = ambient gradient
+    // x = shadingMode, y = lightingOnly, z = lightCount, w = backgroundMode.
+    public Vector4 Flags;
     public Vector4 AmbientSky;
     public Vector4 AmbientGround;
     // View basis for reconstructing world-space ray direction in the background.

@@ -47,7 +47,8 @@
       "mcp__serena__initial_instructions",
       "Bash(python src/RenderLab.Shaders/compile_shaders.py)",
       "Bash(xargs basename -a)",
-      "PowerShell(Get-ChildItem *)"
+      "PowerShell(Get-ChildItem *)",
+      "Skill(dmf-orchestrator)"
     ]
   }
 }

@@ -60,6 +60,7 @@ public sealed class GBufferPipeline : IPipeline
     // Descriptor layouts
     DescriptorSetLayout singleDsLayout;
     DescriptorSetLayout materialDsLayout;
+    DescriptorSetLayout cameraDsLayout;
 
     // Materials (white fallback only — registry owned by Application)
     MaterialDescriptors materials = null!;
@@ -68,6 +69,13 @@ public sealed class GBufferPipeline : IPipeline
     FreeCameraState cameraState;
     Camera camera = null!;
     VisualizationMode vizMode = VisualizationMode.Position;
+
+    // Per-frame camera UBOs (host-visible, persistently mapped). One mat4 each.
+    Buffer[] cameraBuffers = [];
+    Allocation[] cameraAllocs = [];
+    IntPtr[] cameraMapped = [];
+    DescriptorPool cameraDescPool;
+    DescriptorSet[] cameraDescSets = [];
 
     // Transient
     Sampler sampler;
@@ -98,6 +106,7 @@ public sealed class GBufferPipeline : IPipeline
 
         singleDsLayout   = VulkanDescriptors.CreateSamplerLayout(gpu);
         materialDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
+        cameraDsLayout   = VulkanDescriptors.CreateUniformBufferLayout(gpu, ShaderStageFlags.VertexBit);
 
         materials = new MaterialDescriptors(gpu, assets, materialDsLayout, maxTextures: 4);
 
@@ -105,6 +114,7 @@ public sealed class GBufferPipeline : IPipeline
 
         cameraState = FreeCameraController.CreateDefault();
         sampler = VulkanImage.CreateSampler(gpu);
+        CreateCameraBuffers();
 
         Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
         Console.WriteLine("  No render graph — manual barriers between passes");
@@ -124,6 +134,7 @@ public sealed class GBufferPipeline : IPipeline
             Vertex3D.BindingDescription, Vertex3D.AttributeDescriptions,
             (uint)Marshal.SizeOf<GBufferPushConstants>(),
             materialDsLayout,
+            cameraDsLayout,
             out gbufferPipelineLayout);
 
         debugVizPipeline = VulkanPipeline.CreateFullscreenPipeline(
@@ -234,9 +245,53 @@ public sealed class GBufferPipeline : IPipeline
             PipelineLayout: gbufferPipelineLayout,
             Extent: gpu.SwapchainExtent);
 
-        var pc = GBufferPass.BuildPushConstants(Transform.Default, camera, MaterialParams.Default);
+        UploadCameraForCurrentFrame(camera);
+        var pc = GBufferPass.BuildPushConstants(Transform.Default, MaterialParams.Default);
         var matSet = materials.GetOrAllocate(TextureId.None);
-        GBufferPass.Record(gpu.Vk, cb, resources, pc, matSet, vertexBuffer, indexBuffer, indexCount);
+        GBufferPass.Record(gpu.Vk, cb, resources, pc, matSet,
+            cameraDescSets[gpu.CurrentFrame], vertexBuffer, indexBuffer, indexCount);
+    }
+
+    unsafe void UploadCameraForCurrentFrame(Camera cam)
+    {
+        var vp = cam.ViewProjectionMatrix;
+        var dst = (Matrix4x4*)cameraMapped[gpu.CurrentFrame];
+        *dst = vp;
+    }
+
+    unsafe void CreateCameraBuffers()
+    {
+        int frames = GpuState.MaxFramesInFlight;
+        ulong size = (ulong)sizeof(Matrix4x4);
+        cameraBuffers = new Buffer[frames];
+        cameraAllocs  = new Allocation[frames];
+        cameraMapped  = new IntPtr[frames];
+        for (int i = 0; i < frames; i++)
+        {
+            var (buf, alloc) = gpu.Allocator.AllocateBuffer(
+                gpu, size, BufferUsageFlags.UniformBufferBit, MemoryIntent.CpuToGpu);
+            cameraBuffers[i] = buf;
+            cameraAllocs[i]  = alloc;
+            cameraMapped[i]  = (IntPtr)gpu.Allocator.Map(gpu, alloc);
+        }
+        cameraDescPool = VulkanDescriptors.CreateUniformBufferPool(gpu, (uint)frames);
+        cameraDescSets = VulkanDescriptors.AllocateUniformBufferSets(
+            gpu, cameraDescPool, cameraDsLayout, cameraBuffers, size);
+    }
+
+    unsafe void DestroyCameraBuffers()
+    {
+        if (cameraBuffers.Length == 0) return;
+        gpu.Vk.DestroyDescriptorPool(gpu.Device, cameraDescPool, null);
+        for (int i = 0; i < cameraBuffers.Length; i++)
+        {
+            gpu.Allocator.Unmap(gpu, cameraAllocs[i]);
+            VulkanBuffer.Destroy(gpu, cameraBuffers[i], cameraAllocs[i]);
+        }
+        cameraBuffers = [];
+        cameraAllocs  = [];
+        cameraMapped  = [];
+        cameraDescSets = [];
     }
 
     unsafe void InsertGBufferBarriers(CommandBuffer cb)
@@ -360,6 +415,7 @@ public sealed class GBufferPipeline : IPipeline
     {
         gpu.Vk.DeviceWaitIdle(gpu.Device);
         DestroyTransient();
+        DestroyCameraBuffers();
         gpu.Vk.DestroySampler(gpu.Device, sampler, null);
         gpu.Vk.DestroyPipeline(gpu.Device, gbufferPipeline, null);
         gpu.Vk.DestroyPipelineLayout(gpu.Device, gbufferPipelineLayout, null);
@@ -369,6 +425,7 @@ public sealed class GBufferPipeline : IPipeline
         gpu.Vk.DestroyRenderPass(gpu.Device, swapchainRenderPass, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, materialDsLayout, null);
+        gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, cameraDsLayout, null);
         materials.Dispose();
         VulkanBuffer.Destroy(gpu, vertexBuffer, vertexAlloc);
         VulkanBuffer.Destroy(gpu, indexBuffer, indexAlloc);

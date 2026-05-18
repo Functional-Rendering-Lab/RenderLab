@@ -19,7 +19,6 @@ layout(set = 0, binding = 0) uniform sampler2D uAlbedo;
 
 layout(push_constant) uniform PushConstants {
     mat4 model;
-    mat4 viewProj;
     vec3 albedo;
     float specularStrength;
     float shininess;

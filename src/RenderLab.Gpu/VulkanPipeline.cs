@@ -593,6 +593,7 @@ public static class VulkanPipeline
         VertexInputAttributeDescription[] attrDescs,
         uint pushConstantSize,
         DescriptorSetLayout materialLayout,
+        DescriptorSetLayout cameraLayout,
         out PipelineLayout pipelineLayout)
     {
         var entryPoint = Marshal.StringToHGlobalAnsi("main");
@@ -712,12 +713,13 @@ public static class VulkanPipeline
                 };
 
                 // Set 0 holds the per-material albedo sampler (combined image
-                // sampler at binding 0). One set per texture, swapped per draw.
-                var setLayouts = stackalloc DescriptorSetLayout[1] { materialLayout };
+                // sampler at binding 0), swapped per draw. Set 1 holds the
+                // per-frame camera UBO (viewProj), bound once per frame.
+                var setLayouts = stackalloc DescriptorSetLayout[2] { materialLayout, cameraLayout };
                 var layoutInfo = new PipelineLayoutCreateInfo
                 {
                     SType = StructureType.PipelineLayoutCreateInfo,
-                    SetLayoutCount = 1,
+                    SetLayoutCount = 2,
                     PSetLayouts = setLayouts,
                     PushConstantRangeCount = 1,
                     PPushConstantRanges = &pushConstantRange,

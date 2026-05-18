@@ -20,10 +20,13 @@ layout(set = 1, binding = 0, std430) readonly buffer Lights {
 
 layout(push_constant) uniform LightParams {
     vec4 cameraPos;
-    int  shadingMode;     // 0 = Lambertian, 1 = Phong, 2 = Blinn-Phong
-    int  lightingOnly;    // 1 = drop albedo factor (ambient stays on)
-    int  lightCount;
-    int  backgroundMode;  // 0 = solid clear, 1 = ambient gradient
+    // Four ints packed into a vec4 lane-by-lane so the whole block fits
+    // under maxPushConstantSize = 128 (Vulkan minimum guarantee):
+    //   x = shadingMode    (0 Lambert / 1 Phong / 2 Blinn-Phong)
+    //   y = lightingOnly   (1 = drop albedo factor; ambient stays on)
+    //   z = lightCount
+    //   w = backgroundMode (0 solid clear, 1 ambient gradient)
+    vec4 flags;
     vec4 ambientSky;      // hemispheric ambient: top hemisphere
     vec4 ambientGround;   // hemispheric ambient: bottom hemisphere
     // View basis for reconstructing a world-space ray in the background path.
@@ -32,6 +35,11 @@ layout(push_constant) uniform LightParams {
     vec4 camUp;
     vec4 camForward;
 } pc;
+
+#define PC_SHADING_MODE    int(pc.flags.x)
+#define PC_LIGHTING_ONLY   int(pc.flags.y)
+#define PC_LIGHT_COUNT     int(pc.flags.z)
+#define PC_BACKGROUND_MODE int(pc.flags.w)
 
 layout(location = 0) in vec2 uv;
 layout(location = 0) out vec4 outColor;
@@ -76,12 +84,12 @@ vec3 shadeLight(Light L, vec3 fragPos, vec3 N, vec3 V,
     float shin = max(shininess, 1.0);
     float lightFacing = step(0.0, dot(N, lightDir));
 
-    if (pc.shadingMode == MODE_PHONG) {
+    if (PC_SHADING_MODE == MODE_PHONG) {
         vec3 reflectDir = reflect(-lightDir, N);
         float norm = (shin + 2.0) / 2.0;
         float spec = norm * pow(max(dot(reflectDir, V), 0.0), shin);
         specular = lightFacing * spec * lightColor * intensity * specularStrength;
-    } else if (pc.shadingMode == MODE_BLINN_PHONG) {
+    } else if (PC_SHADING_MODE == MODE_BLINN_PHONG) {
         vec3 halfDir = normalize(lightDir + V);
         float shinBP = shin * 4.0;
         float norm = (shinBP + 8.0) / 8.0;
@@ -101,7 +109,7 @@ void main() {
     // clear color survives; ambient-gradient mode writes a hemispheric blend
     // along the view ray's world-Y axis (sky/ground horizon).
     if (length(normalSample.rgb) < 0.5) {
-        if (pc.backgroundMode == 0) {
+        if (PC_BACKGROUND_MODE == 0) {
             discard;
         }
         vec2 ndc = uv * 2.0 - 1.0;
@@ -126,10 +134,10 @@ void main() {
     float specularStrength = normalSample.a;
     float shininess = albedoSample.a * SHININESS_RANGE;
 
-    bool stripAlbedo = (pc.lightingOnly == 1);
+    bool stripAlbedo = (PC_LIGHTING_ONLY == 1);
 
     vec3 accum = vec3(0.0);
-    for (int i = 0; i < pc.lightCount; i++) {
+    for (int i = 0; i < PC_LIGHT_COUNT; i++) {
         accum += shadeLight(lights[i], fragPos, N, V, albedo,
                             specularStrength, shininess, stripAlbedo);
     }
