@@ -134,8 +134,12 @@ public static class VulkanDevice
                 if (result != Result.Success)
                     throw new InvalidOperationException($"Failed to create Vulkan instance: {result}");
 
-                if (EnableValidation)
-                    Console.WriteLine("  Validation layers: not available (install Vulkan SDK to enable)");
+                // Conditional compilation rather than an `if` over the constant: in a release
+                // build the constant is false, so the message is unreachable code the compiler
+                // is right to warn about.
+#if DEBUG
+                Console.WriteLine("  Validation layers: not available (install Vulkan SDK to enable)");
+#endif
 
                 return instance;
             }

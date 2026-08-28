@@ -4,6 +4,7 @@ using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.Vulkan;
 using RenderLab.Assets;
+using RenderLab.Editor;
 using RenderLab.Functional;
 using RenderLab.Gpu;
 using RenderLab.Gpu.Assets;
@@ -46,6 +47,12 @@ public sealed class Application : IDisposable
     AssetRegistry assets = null!;
     SceneAssetResolver resolver = null!;
     VulkanImGui imgui = null!;
+
+    // The editor's Ptah shell, drawn beside the ImGui one until the last panel has moved into
+    // it. The view holds the panel tree; the shell holds the atlas, the context, and the target.
+    PtahUi ptah = null!;
+    readonly EditorView editor = new();
+
     RenderPass overlayRenderPass;
     Framebuffer[] overlayFramebuffers = [];
     IPipeline pipeline = null!;
@@ -60,6 +67,11 @@ public sealed class Application : IDisposable
     AppUiModel app = AppUiModel.Default;
     UiModel ui = UiModel.Default;
     UiIntent lastIntent = UiIntent.None;
+
+    // The Ptah half of it, kept apart because it also decides what reaches ImGui: the shell
+    // records last and is therefore on top, so a click on one of its panels must not fall
+    // through to a window behind it.
+    UiIntent lastPtahIntent = UiIntent.None;
 
     public Application(PipelineRegistry registry, IProceduralAssetSource procedural)
     {
@@ -231,6 +243,10 @@ public sealed class Application : IDisposable
         overlayRenderPass = VulkanPipeline.CreateOverlayRenderPass(gpu);
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
         imgui = VulkanImGui.Create(gpu, overlayRenderPass);
+        ptah = PtahUi.Create(gpu, overlayRenderPass, window.Input).Match(
+            ok: shell => shell,
+            error: failure => throw new InvalidOperationException(
+                $"Failed to create the Ptah UI shell: {failure}"));
         hotReload = new ShaderHotReload(msg => Console.WriteLine($"  shader: {msg}"));
     }
 
@@ -290,13 +306,17 @@ public sealed class Application : IDisposable
             Scene? scene = pipeline.ConsumesScenes ? SceneBuilder.BuildScene(ui, aspect) : null;
 
             // Feed input + keyboard to ImGui IO before NewFrame so widgets
-            // see this frame's interactions (not the previous one's).
+            // see this frame's interactions (not the previous one's). Buttons stop at the
+            // Ptah shell when the pointer was over one of its panels last frame: the shell
+            // records after ImGui, so what is under one of its panels is behind it, and a
+            // press that reached both would be acted on twice.
+            bool shellHasMouse = lastPtahIntent.WantCaptureMouse;
             var io = ImGuiApi.GetIO();
             io.MousePos       = input.MousePosition;
-            io.MouseDown[0]   = input.LeftButtonDown;
-            io.MouseDown[1]   = input.RightButtonDown;
-            io.MouseDown[2]   = input.MiddleButtonDown;
-            io.MouseWheel     = input.ScrollDelta;
+            io.MouseDown[0]   = input.LeftButtonDown && !shellHasMouse;
+            io.MouseDown[1]   = input.RightButtonDown && !shellHasMouse;
+            io.MouseDown[2]   = input.MiddleButtonDown && !shellHasMouse;
+            io.MouseWheel     = shellHasMouse ? 0f : input.ScrollDelta;
             foreach (var c in keyboard.TypedChars) io.AddInputCharacter(c);
             foreach (var (key, down) in keyboard.KeyEvents)
             {
@@ -319,10 +339,18 @@ public sealed class Application : IDisposable
             // before the pipeline reads ui in RecordFrame.
             imgui.NewFrame(window.Width, window.Height, dt);
 
+            // The Ptah shell is built here for the same reason the ImGui panels are: building
+            // it is what produces the model changes the pipeline reads in RecordFrame.
+            var stats = pipeline.GetFrameStats(dt);
+            var shell = ptah.Frame(window.Width, window.Height,
+                top: ImGuiApi.GetMainViewport().WorkPos.Y, dt,
+                context => editor.Draw(context, app, stats, ptah.Cost));
+            lastPtahIntent = shell.Intent;
+
             if (pipeline.ConsumesScenes)
             {
-                var stats = pipeline.GetFrameStats(dt);
-                var view = UiView.Draw(app, ui, scene!, assets, stats, projectIndex, assetLibrary);
+                var view = Merge(shell,
+                    UiView.Draw(app, ui, scene!, assets, stats, projectIndex, assetLibrary));
                 ApplyViewMessages(view, prevUi);
                 pipeline.DrawDebugUi();
                 // ApplyViewMessages may have reloaded the scene (registry
@@ -332,8 +360,16 @@ public sealed class Application : IDisposable
             }
             else
             {
-                AppMenuBar.Draw(app, msg => ApplyAppMessage(msg), includeViewMenu: false);
+                var menu = new List<AppUiMsg>();
+                AppMenuBar.Draw(app, menu.Add, includeViewMenu: false);
                 pipeline.DrawDebugUi();
+
+                // Folded through the same path as the scene branch, which is also what tells
+                // this branch who wants the mouse: a pipeline's own debug windows used to be
+                // hovered without the camera ever hearing about it.
+                var bare = new UiViewResult(menu, [],
+                    new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard));
+                ApplyViewMessages(Merge(shell, bare), prevUi);
             }
 
             // Pipeline records its passes (must leave swapchain in PresentSrcKhr).
@@ -344,10 +380,27 @@ public sealed class Application : IDisposable
             imgui.RecordCommands(vk, cmd, overlayRenderPass,
                 overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
 
+            // The Ptah shell records last, so a panel that has moved into it is drawn over the
+            // ImGui window it replaced rather than under it.
+            ptah.Record(cmd, overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
+
             if (!VulkanFrame.EndFrame(gpu, imageIndex))
                 RecreateSwapchainResources();
         }
     }
+
+    /// <summary>
+    /// One frame drawn by two UI frameworks, folded as one. Both halves emit the same messages
+    /// and answer the same question about the input, so merging them is a concatenation and an
+    /// "or": if either wants the mouse, the camera does not get it. Goes away with the ImGui
+    /// half, along with everything else that exists only because there are two.
+    /// </summary>
+    static UiViewResult Merge(UiViewResult shell, UiViewResult panels) => new(
+        [.. shell.AppMessages, .. panels.AppMessages],
+        [.. shell.Messages, .. panels.Messages],
+        new UiIntent(
+            shell.Intent.WantCaptureMouse || panels.Intent.WantCaptureMouse,
+            shell.Intent.WantCaptureKeyboard || panels.Intent.WantCaptureKeyboard));
 
     void ApplyViewMessages(UiViewResult view, UiModel uiBeforeFrameInputs)
     {
@@ -1270,6 +1323,7 @@ public sealed class Application : IDisposable
         hotReload?.Dispose();
         pipeline?.Dispose();
         imgui?.Dispose();
+        ptah?.Dispose();
         if (overlayFramebuffers.Length > 0)
             VulkanPipeline.DestroyFramebuffers(gpu, overlayFramebuffers);
         if (overlayRenderPass.Handle != 0)

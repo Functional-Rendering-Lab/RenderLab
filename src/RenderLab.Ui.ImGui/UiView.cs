@@ -31,7 +31,6 @@ public static class UiView
         AppMenuBar.Draw(app, dispatchApp);
         ImGui.DockSpaceOverViewport(0, ImGui.GetMainViewport(), ImGuiDockNodeFlags.PassthruCentralNode);
 
-        if (app.IsPanelVisible(PanelId.GpuTimings))    DrawGpuTimingsPanel(stats);
         if (app.IsPanelVisible(PanelId.Visualization)) DrawVisualizationPanel(model.Viz, dispatch);
         if (app.IsPanelVisible(PanelId.Lighting))      LightingDebugMenu.Draw(model.Shading, model.LightingOnly, dispatch);
         if (app.IsPanelVisible(PanelId.RenderGraph))   RenderGraphDebugMenu.Draw(stats.ResolvedPasses);
@@ -43,31 +42,6 @@ public static class UiView
         var io = ImGui.GetIO();
         var intent = new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard);
         return new UiViewResult(appMessages, messages, intent);
-    }
-
-    private static void DrawGpuTimingsPanel(FrameStats stats)
-    {
-        ImGui.SetNextWindowPos(new Vector2(10, 30), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 140), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("GPU Timings"))
-        {
-            ImGui.End();
-            return;
-        }
-
-        float total = 0;
-        for (int i = 0; i < stats.TimestampMillis.Count; i++)
-        {
-            ImGui.Text($"{stats.TimestampLabels[i]}: {stats.TimestampMillis[i]:F3} ms");
-            total += (float)stats.TimestampMillis[i];
-        }
-        ImGui.Separator();
-        ImGui.Text($"Total GPU: {total:F3} ms");
-
-        float dt = stats.DeltaSeconds;
-        ImGui.Text($"Frame: {dt * 1000:F1} ms ({(dt > 0 ? 1.0f / dt : 0):F0} FPS)");
-
-        ImGui.End();
     }
 
     private static void DrawVisualizationPanel(VisualizationMode current, Action<UiMsg> dispatch)

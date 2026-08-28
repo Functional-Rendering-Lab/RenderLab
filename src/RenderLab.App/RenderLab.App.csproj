@@ -9,6 +9,7 @@
     <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
     <ProjectReference Include="..\RenderLab.Project\RenderLab.Project.csproj" />
     <ProjectReference Include="..\RenderLab.Pipelines\RenderLab.Pipelines.csproj" />
+    <ProjectReference Include="..\RenderLab.Editor\RenderLab.Editor.csproj" />
     <ProjectReference Include="..\RenderLab.Ui.ImGui\RenderLab.Ui.ImGui.csproj" />
     <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
     <ProjectReference Include="..\RenderLab.Papers\RenderLab.Papers.csproj" />

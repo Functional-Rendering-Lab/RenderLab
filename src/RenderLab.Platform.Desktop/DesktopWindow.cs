@@ -33,6 +33,13 @@ public sealed class DesktopWindow : IPlatformWindow
 
     public void ClearResizeFlag() => _resized = false;
 
+    /// <summary>
+    /// The window's input devices. Exposed because the editor's UI shell translates them for
+    /// itself - Ptah's <c>InputTracker</c> takes exactly this - and a second snapshot type
+    /// standing between the two would be a translation of a translation.
+    /// </summary>
+    public IInputContext Input => _input;
+
     /// <summary>Update the OS title bar caption. Used when the active project name changes.</summary>
     public void SetTitle(string title) => _window.Title = title;
 

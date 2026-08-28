@@ -1,0 +1,36 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <ProjectReference Include="..\RenderLab.Gpu\RenderLab.Gpu.csproj" />
+    <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
+  </ItemGroup>
+
+  <!-- Ptah is referenced by path while the migration is in flight, not from a package feed.
+       The packages under its artifacts\packages are all 0.1.0, and a fixed version on a local
+       feed plus NuGet's global cache hands back a stale assembly without saying so. Switch to
+       PackageReference once the API stops moving.
+
+       PtahRoot assumes the two repositories are checked out beside each other; override it on
+       the command line (-p:PtahRoot=...) or in the environment when they are not. -->
+  <PropertyGroup>
+    <PtahRoot Condition="'$(PtahRoot)' == ''">$(MSBuildThisFileDirectory)..\..\..\..\GIT\Ptah</PtahRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="$(PtahRoot)\src\Ptah\Ptah.csproj" />
+    <ProjectReference Include="$(PtahRoot)\src\Ptah.Functional\Ptah.Functional.csproj" />
+    <ProjectReference Include="$(PtahRoot)\src\Ptah.Widgets\Ptah.Widgets.csproj" />
+    <ProjectReference Include="$(PtahRoot)\src\Ptah.Entities\Ptah.Entities.csproj" />
+    <ProjectReference Include="$(PtahRoot)\src\Ptah.Backend\Ptah.Backend.csproj" />
+    <ProjectReference Include="$(PtahRoot)\src\Ptah.Backend.Vulkan\Ptah.Backend.Vulkan.csproj" />
+    <ProjectReference Include="$(PtahRoot)\src\Ptah.Backend.Windowing\Ptah.Backend.Windowing.csproj" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <LangVersion>13</LangVersion>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
