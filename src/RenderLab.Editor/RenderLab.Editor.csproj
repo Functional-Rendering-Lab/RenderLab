@@ -1,7 +1,9 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
+    <ProjectReference Include="..\RenderLab.Assets\RenderLab.Assets.csproj" />
     <ProjectReference Include="..\RenderLab.Gpu\RenderLab.Gpu.csproj" />
+    <ProjectReference Include="..\RenderLab.Project\RenderLab.Project.csproj" />
     <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
   </ItemGroup>
 
@@ -24,6 +26,13 @@
     <ProjectReference Include="$(PtahRoot)\src\Ptah.Backend\Ptah.Backend.csproj" />
     <ProjectReference Include="$(PtahRoot)\src\Ptah.Backend.Vulkan\Ptah.Backend.Vulkan.csproj" />
     <ProjectReference Include="$(PtahRoot)\src\Ptah.Backend.Windowing\Ptah.Backend.Windowing.csproj" />
+  </ItemGroup>
+
+  <!-- The shell's own look and its panels are internal: nothing outside this assembly builds a
+       RenderLab panel. The tests are the exception, because a frame of the editor is built
+       headlessly and has to be measured at the same type size the shell draws at. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="RenderLab.Editor.Tests" />
   </ItemGroup>
 
   <PropertyGroup>

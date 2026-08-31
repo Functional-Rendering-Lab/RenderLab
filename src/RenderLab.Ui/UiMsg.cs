@@ -7,7 +7,7 @@ namespace RenderLab.Ui;
 /// <summary>
 /// Messages emitted by the view in response to widget interaction. Coarse-grained:
 /// one message per panel carries the whole updated subrecord, so the view composes
-/// existing value-in/value-out widgets (<c>DebugFields</c>) without exploding into
+/// existing value-in/value-out widgets (Ptah's <c>WidgetKit</c>) without exploding into
 /// one message per field. <see cref="UiUpdate.Apply"/> folds these into a new
 /// <see cref="UiModel"/>. Light edits carry a <see cref="Light"/> (point or
 /// directional) so the same message handles both variants. Drawable edits route

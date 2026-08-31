@@ -344,13 +344,13 @@ public sealed class Application : IDisposable
             var stats = pipeline.GetFrameStats(dt);
             var shell = ptah.Frame(window.Width, window.Height,
                 top: ImGuiApi.GetMainViewport().WorkPos.Y, dt,
-                context => editor.Draw(context, app, stats, ptah.Cost));
+                context => editor.Draw(context, app, ui, assets, assetLibrary, projectIndex,
+                    stats, ptah.Cost));
             lastPtahIntent = shell.Intent;
 
             if (pipeline.ConsumesScenes)
             {
-                var view = Merge(shell,
-                    UiView.Draw(app, ui, scene!, assets, stats, projectIndex, assetLibrary));
+                var view = Merge(shell, UiView.Draw(app, stats));
                 ApplyViewMessages(view, prevUi);
                 pipeline.DrawDebugUi();
                 // ApplyViewMessages may have reloaded the scene (registry

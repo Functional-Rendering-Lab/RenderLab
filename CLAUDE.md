@@ -44,16 +44,18 @@ code/
     RenderLab.Pipelines         IPipeline + Triangle/GBuffer/Deferred + SceneLoader + SceneBuilder
     RenderLab.Ui                pure Elm-style UI state (Model/Msg/Update/Intent)
     RenderLab.Ui.ImGui          imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
+    RenderLab.Editor            Ptah view layer replacing Ui.ImGui, panel by panel
+    RenderLab.Assets            CPU-side asset records + loaders (mesh, texture, material)
     RenderLab.Shaders           GLSL / SPIR-V shaders
     RenderLab.Platform.Desktop  GLFW window
   projects/
     triangle/, gbuffer/, deferred/   Starter projects (project.json + assets/ + scenes/)
   tests/
-    RenderLab.Functional.Tests
     RenderLab.Graph.Tests
     RenderLab.Scene.Tests
     RenderLab.Ui.Tests
     RenderLab.Project.Tests
+    RenderLab.Editor.Tests
 ```
 
 ## Tooling

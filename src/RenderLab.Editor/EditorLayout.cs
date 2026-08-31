@@ -38,7 +38,13 @@ public static class EditorLayout
     /// ImGui window, drawn over the hole its place in the layout leaves.
     /// </summary>
     public static readonly ImmutableHashSet<PanelId> Ported = ImmutableHashSet.Create(
-        PanelId.GpuTimings);
+        PanelId.GpuTimings,
+        PanelId.Visualization,
+        PanelId.Lighting,
+        PanelId.Inspector,
+        PanelId.Scene,
+        PanelId.AssetBrowser,
+        PanelId.Project);
 
     /// <summary>A panel's share of the column it is in. Shares are relative; only their ratio matters.</summary>
     private readonly record struct PanelSpec(PanelId Panel, float Share);
@@ -52,15 +58,22 @@ public static class EditorLayout
     /// them from a 4K session gives a panel three percent of the window, which is a title bar
     /// and nothing under it on a smaller screen, so the vertical shares say what each panel
     /// needs rather than what it happened to have.
+    /// <para>
+    /// Which is a claim that could not be checked until the panels drew something. Visualization
+    /// is one row and Lighting is two, and their first shares gave the pair a third of the
+    /// column - nearly all of it empty, and taken from the two outliners beside them, which are
+    /// lists and can always use the space. A form needs its rows and a margin; a list needs
+    /// whatever is left.
+    /// </para>
     /// </summary>
     private static readonly ColumnSpec[] Columns =
     [
         new(448f,
         [
-            new(PanelId.Visualization, 1.2f),
-            new(PanelId.Lighting, 2.5f),
-            new(PanelId.Scene, 3.5f),
-            new(PanelId.Project, 2.8f),
+            new(PanelId.Visualization, 0.7f),
+            new(PanelId.Lighting, 1.0f),
+            new(PanelId.Scene, 4.6f),
+            new(PanelId.Project, 3.7f),
         ]),
         new(506f,
         [

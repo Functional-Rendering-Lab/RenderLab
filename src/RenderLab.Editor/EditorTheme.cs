@@ -39,12 +39,21 @@ internal static class EditorTheme
         Elevated = Color.Rgba(28, 28, 28),
         RowStripe = Color.Rgba(22, 22, 22),
 
-        // Controls. ImGui draws a button as the accent at half alpha over the window, which
-        // reads as a tinted face rather than a coloured one; these are that blend resolved
-        // against Surface, so a button keeps its look without depending on what is behind it.
-        Raised = Color.Rgba(114, 73, 33),
-        RaisedHot = Color.Rgba(152, 95, 40),
-        RaisedDown = Color.Rgba(88, 57, 26),
+        // Controls: the face of anything that can be pressed, one clear step above Elevated.
+        //
+        // This started out as ImGui's button colour - the accent at half alpha over the window,
+        // resolved against Surface - and that was reading ImGui's palette rather than Ptah's
+        // roles. ImGui names a colour per widget part, so its ochre lands on buttons and on
+        // nothing else. Ptah names the job, and Raised is the job every pressable face does: a
+        // combo, a scroll grab and a menu row are all raised. Carrying the ochre across meant a
+        // drop-down shouted louder than the number field beside it, when the two are the same
+        // kind of control holding the same kind of value.
+        //
+        // So the accent goes back to where the note below already says it belongs - selection,
+        // and the marks that have to be found at once - and a control face is a grey.
+        Raised = Color.Rgba(44, 44, 44),
+        RaisedHot = Color.Rgba(56, 56, 56),
+        RaisedDown = Color.Rgba(34, 34, 34),
 
         // Lines. A seam between two regions is darker than both of them; an outline around a
         // control is lighter than the surface it sits on. ImGui spends one colour on both.

@@ -3,6 +3,8 @@ using Ptah;
 using Ptah.Entities;
 using Ptah.Functional;
 using Ptah.Widgets;
+using RenderLab.Assets;
+using RenderLab.Project;
 using RenderLab.Ui;
 
 namespace RenderLab.Editor;
@@ -31,6 +33,12 @@ public sealed class EditorView
     /// </summary>
     private readonly List<UIBox> _holes = [];
 
+    /// <summary>
+    /// Where an open drop-down, colour picker, expanded node or half-typed dialog lives. See
+    /// <see cref="WidgetState"/>.
+    /// </summary>
+    private readonly WidgetState _widgets = new();
+
     private PanelTree _tree;
     private int _layout;
 
@@ -43,7 +51,9 @@ public sealed class EditorView
         _tree = EditorLayout.Build(hidden);
     }
 
-    public UiViewResult Draw(UIContext ui, AppUiModel app, FrameStats stats, UiCost cost)
+    public UiViewResult Draw(UIContext ui, AppUiModel app, UiModel model,
+        IAssetCatalog catalog, AssetLibrary library, ProjectAssetIndex project,
+        FrameStats stats, UiCost cost)
     {
         int layout = EditorLayout.LayoutMask(app);
         if (layout != _layout)
@@ -68,6 +78,11 @@ public sealed class EditorView
                 Optional.Some(Color.Transparent),
                 Optional.Some(PanelHeaderButtons.Close))
             .IfSome(Requested);
+
+        // Beside the panel area rather than inside it. A modal dims the whole window and takes
+        // the mouse and the keyboard from everything behind it, which includes the panel that
+        // opened it, so it is not that panel's to build.
+        AssetDialogs.Draw(w, _widgets, library, appMessages.Add);
 
         // The frame's mutation phase, after the build, when nothing is walking the tree: a
         // boundary noticed during the build moves the next one.
@@ -102,6 +117,26 @@ public sealed class EditorView
                 {
                     case PanelId.GpuTimings:
                         GpuTimingsPanel.Draw(w, stats, cost);
+                        break;
+                    case PanelId.Visualization:
+                        VisualizationPanel.Draw(w, _widgets, model.Viz, messages.Add);
+                        break;
+                    case PanelId.Lighting:
+                        LightingPanel.Draw(w, _widgets, model, messages.Add);
+                        break;
+                    case PanelId.Inspector:
+                        InspectorPanel.Draw(w, _widgets, model, catalog, library,
+                            messages.Add, appMessages.Add);
+                        break;
+                    case PanelId.Scene:
+                        ScenePanel.Draw(w, _widgets, model, catalog, messages.Add);
+                        break;
+                    case PanelId.AssetBrowser:
+                        AssetBrowserPanel.Draw(w, _widgets, model, library,
+                            messages.Add, appMessages.Add);
+                        break;
+                    case PanelId.Project:
+                        ProjectPanel.Draw(w, _widgets, project, appMessages.Add);
                         break;
                 }
             }

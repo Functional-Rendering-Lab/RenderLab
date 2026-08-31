@@ -25,6 +25,7 @@ RenderLab.App              (desktop composition root — Application + Program)
   |-> RenderLab.Project    (read project.json + *.scene.json from disk)
   |-> RenderLab.Ui         (pure Elm-style state: Model/Msg/Update/Intent — no ImGui, no Vulkan)
   |-> RenderLab.Ui.ImGui   (imperative shell for RenderLab.Ui: ImGui views + GPU timestamps -> depends on Gpu, Ui)
+  |-> RenderLab.Editor     (the Ptah view layer replacing Ui.ImGui -> depends on Gpu, Ui, Assets, Project + Ptah)
   '-> RenderLab.Platform.Desktop  (GLFW window — no internal deps)
 ```
 
@@ -34,7 +35,24 @@ No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero sid
 
 `RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `FrameStats`, plus `EditableDrawable` (the editor-side mirror of a scene `Drawable`). It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
 
-`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). Panels split into two roles: **outliners / browsers** (`ScenePanel`, `AssetBrowserPanel`, `ProjectPanel`) list items and emit `UiMsg.Select` when one is clicked; the **`InspectorPanel`** switches on `UiModel.Selection` and renders the editor for the selected item — a drawable's transform/mesh/material, a light's fields, a material asset's parameters, or the `Environment` pseudo-item (ambient + clear color + background mode). Only the Inspector edits item properties; `LightingDebugMenu` keeps the shading-model and lighting-only toggles (render-mode, not item edits), and add / remove / rename / delete remain on the outliners as list operations. `Selection` is a discriminated union — `None | Drawable | Light | MaterialAsset | MeshAsset | TextureAsset | Environment` — so removing the currently-selected item collapses to a single reducer rule.
+`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). It is being replaced panel by panel by `RenderLab.Editor` (below), and what is left in it is `RenderGraphDebugMenu`, the main menu bar, and the dockspace that places the one panel still drawn through it.
+
+Panels split into two roles, and the split survives the change of framework. **Outliners / browsers** list items and emit `UiMsg.Select` when one is clicked; the **`InspectorPanel`** switches on `UiModel.Selection` and renders the editor for the selected item — a drawable's transform/mesh/material, a light's fields, a material asset's parameters, a mesh or texture asset's import settings, or the `Camera` and `Environment` pseudo-items (ambient + clear color + background mode). Only the Inspector edits item properties; the Lighting panel keeps the shading-model and lighting-only toggles (render-mode, not item edits), and add / remove / rename / delete remain on the outliners as list operations. `Selection` is a discriminated union — `None | Drawable | Light | MaterialAsset | MeshAsset | TextureAsset | Environment | Camera` — so removing the currently-selected item collapses to a single reducer rule.
+
+### RenderLab.Editor: the view layer replacing Ui.ImGui
+
+`RenderLab.Editor` is the second view layer over the same `RenderLab.Ui`, built on Ptah instead of Dear ImGui, and the two run side by side while the migration is in flight. The phases and their current state are in `docs/plans/imgui-replacement-feasibility.md` in the Ptah repository, which is checked out beside this one.
+
+It is named for what it is rather than for the library that draws it, and its `Draw` has the same shape as `UiView.Draw` — model in, `UiViewResult` out — so `Application` folds one kind of result whichever framework produced it, and the day the last panel moves the ImGui half is deleted rather than untangled.
+
+- `PtahUi` is the counterpart of `VulkanImGui`: the font atlas, the `UIContext`, the input translation over the `IInputContext` `DesktopWindow` already owns, and the draw target. Ptah's Vulkan backend creates no device, no swapchain and no frame loop — it borrows handles and records into the command buffer `Application` is already recording, in its own instance of the overlay pass.
+- `EditorLayout` is the shell: the three-column arrangement the dock ini settled on, written once in code, with the docking machinery left behind. It names every panel in its final place and `Ported` says which of them Ptah draws today; a panel that has not moved leaves a hole in the layout, and its ImGui window is still drawn there.
+- `EditorView` holds the panel tree and dispatches to the ported panels. `EditorTheme` is RenderLab's palette written as a Ptah theme, and `WidgetState` holds the interface's own state — which drop-down is open, which colour picker — which is deliberately not in `UiModel`.
+- The panels themselves are one file each: `GpuTimingsPanel`, `VisualizationPanel`, `LightingPanel`, `InspectorPanel`, `ScenePanel`, `AssetBrowserPanel`, `ProjectPanel`. `DebugFields` has no counterpart, because Ptah's `WidgetKit` is it.
+- `AssetDialogs` holds the rename and delete dialogs, drawn once per frame from `WidgetState.Dialog` and beside the panel tree rather than inside the panel that opens them: a modal dims the whole window and takes the mouse and keyboard from everything behind it, including that panel. Dear ImGui's popups are opened by id at the row's own call site, so the ImGui version built both dialogs once per asset and needed a dictionary of drafts keyed by guid; here, whether a dialog is up is application state and there is one of it.
+- Adding a project mesh to the scene is `Add to Scene` on the Asset Browser's context menu, which dispatches the `AppUiMsg.RequestAddDrawableFromAsset` the drag-and-drop payload used to. The gesture changed; nothing downstream of the panel can tell.
+
+A frame of the shell needs a text measurer and nothing else, so it can be built headlessly — `tests/RenderLab.Editor.Tests` builds real frames, walks every branch of the Inspector, and drives whole gestures (a click on a row, a context menu, a dialog answered) without a GPU or a hand on the mouse.
 
 The assembly is `RenderLab.Ui.ImGui` but the last namespace segment collides with `ImGuiNET.ImGui` (the ImGui entry-point class) during simple-name lookup. To keep the assembly name matching the folder, each file declares a `using ImGui = ImGuiNET.ImGui;` alias *inside* the namespace — compilation-unit aliases lose to the parent-namespace walk-up, so the alias must live after `namespace RenderLab.Ui.ImGui;`.
 
@@ -203,6 +221,7 @@ src/
                                TonemapPass, DebugVizPass
   RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
   RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
+  RenderLab.Editor/            Ptah view layer replacing Ui.ImGui (shell layout + ported panels)
   RenderLab.Project/           Pure project + scene document model + JSON IO;
                                project asset index + scanner (Project panel)
   RenderLab.Pipelines/         IPipeline + Triangle/GBuffer/Deferred + SceneLoader + SceneBuilder
