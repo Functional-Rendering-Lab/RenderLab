@@ -5,18 +5,17 @@ using RenderLab.Ui;
 namespace RenderLab.Editor.Tests;
 
 /// <summary>
-/// The shell layout while the migration is in flight. The tree is derived from the spec every
-/// time the set of visible panels changes, and what has to survive that derivation is the rules
-/// nobody can check by looking at the window: a panel Ptah does not draw yet leaves a hole exactly
-/// where it will go, holes beside each other are one hole - because a boundary between two regions
-/// the shell does not own is a splitter that moves nothing and still takes the mouse - and a panel
-/// that is hidden gives its space back rather than keeping a place nothing draws in.
+/// The shell layout. The tree is derived from the spec every time the set of visible panels
+/// changes, and what has to survive that derivation is the rules nobody can check by looking at
+/// the window: a hidden panel gives its space back rather than keeping a place nothing draws in,
+/// a column left with nothing showing becomes a hole, and holes beside each other are one hole -
+/// because a boundary between two regions the shell does not own is a splitter that moves nothing
+/// and still takes the mouse.
 /// <para>
-/// The shapes asserted here move as panels port, and that is the point of asserting them: this
-/// file is where the migration's current state is written down as something that fails when it
-/// stops being true. Render Graph is the one panel left that Ptah does not draw, so the merge
-/// rule is exercised where columns meet and no longer where leaves do - two adjacent holes inside
-/// one column need two unported panels, and there is only one.
+/// These used to be about the migration - a panel Dear ImGui still drew left a hole where it
+/// would go, and the shapes here moved as panels ported. Every panel has moved, so what is left
+/// is the part that was never temporary: the viewport is a hole, and so is a column somebody has
+/// emptied.
 /// </para>
 /// </summary>
 public class EditorLayoutTests
@@ -28,7 +27,7 @@ public class EditorLayoutTests
         : throw new InvalidOperationException($"{panel.Key} is a split, not a leaf");
 
     [Fact]
-    public void EveryColumnHoldingAPortedPanelIsAColumnOfTheTree()
+    public void EveryColumnHoldingAPanelIsAColumnOfTheTree()
     {
         PanelTree tree = EditorLayout.Build(Everything);
 
@@ -44,16 +43,15 @@ public class EditorLayoutTests
     }
 
     [Fact]
-    public void APanelThatHasNotMovedYetLeavesAHoleWhereItWillGo()
+    public void TheRightColumnIsRenderGraphOverGpuTimings()
     {
         PanelTree tree = EditorLayout.Build(Everything);
 
-        // Render Graph is the last panel still drawn by Dear ImGui, and it is drawn through the
-        // hole its place in the right-hand column leaves, above the GPU Timings panel that went
-        // across first.
+        // The last two panels to move across, and the last hole in the layout that was not the
+        // viewport: Render Graph was drawn through one of these until Phase 4.
         Panel right = tree.Root.Children[3];
         Assert.Equal(2, right.Children.Count);
-        Assert.Equal(EditorLayout.Hole, ViewOf(right.Children[0]));
+        Assert.Equal(EditorLayout.ViewOf(PanelId.RenderGraph), ViewOf(right.Children[0]));
         Assert.Equal(EditorLayout.ViewOf(PanelId.GpuTimings), ViewOf(right.Children[1]));
     }
 
@@ -87,13 +85,16 @@ public class EditorLayoutTests
     }
 
     [Fact]
-    public void AColumnWithNothingOfPtahsInItJoinsTheHoleBesideIt()
+    public void AColumnEmptiedByHidingItsPanelsJoinsTheHoleBesideIt()
     {
-        // With GPU Timings unticked the right column holds only Render Graph, which is still
-        // ImGui's, so the whole column is a hole - and a hole beside the viewport is the
-        // viewport, because a boundary drawn inside it would move nothing.
-        AppUiModel noTimings = Everything.WithPanelVisible(PanelId.GpuTimings, false);
-        PanelTree tree = EditorLayout.Build(noTimings);
+        // Untick both of the right column's panels and the column has nothing to draw, so it is
+        // a hole - and a hole beside the viewport is the viewport, because a boundary drawn
+        // inside it would move nothing.
+        AppUiModel emptied = Everything
+            .WithPanelVisible(PanelId.GpuTimings, false)
+            .WithPanelVisible(PanelId.RenderGraph, false);
+
+        PanelTree tree = EditorLayout.Build(emptied);
 
         Assert.Equal(3, tree.Root.Children.Count);
         Assert.Equal(EditorLayout.Hole, ViewOf(tree.Root.Children[2]));
@@ -106,7 +107,7 @@ public class EditorLayoutTests
     public void WithNothingOfItsOwnToDrawTheShellIsOneHoleAndNoBoundaries()
     {
         AppUiModel hidden = Everything;
-        foreach (PanelId id in EditorLayout.Ported)
+        foreach (PanelId id in Enum.GetValues<PanelId>())
             hidden = hidden.WithPanelVisible(id, false);
 
         PanelTree tree = EditorLayout.Build(hidden);
@@ -118,8 +119,6 @@ public class EditorLayoutTests
     [Fact]
     public void HidingAPanelGivesItsSpaceBackRatherThanLeavingAHoleBehind()
     {
-        // The difference between "not ported" and "not visible": the first keeps its place
-        // because something else is drawing there, the second gives it up because nothing is.
         AppUiModel noGraph = Everything.WithPanelVisible(PanelId.RenderGraph, false);
         PanelTree tree = EditorLayout.Build(noGraph);
 

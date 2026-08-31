@@ -1,4 +1,3 @@
-using System.Collections.Immutable;
 using Ptah;
 using Ptah.Entities;
 using Ptah.Functional;
@@ -18,33 +17,26 @@ namespace RenderLab.Editor;
 /// share of its parent, so a window resize is arithmetic and a drag is a new share.
 /// </para>
 /// <para>
-/// The spec names every panel in its final place from the first day of the migration, and
-/// <see cref="Ported"/> says which of them Ptah draws today. A panel that has not moved over yet
-/// leaves a hole exactly where it will go, and Dear ImGui keeps drawing it there. Porting one is
-/// one entry in that set.
+/// The spec named every panel in its final place from the first day of the migration, and a
+/// panel that had not moved yet left a hole exactly where it would go, which Dear ImGui kept
+/// drawing into. Every panel has moved, so the set that said which was which is gone; what is
+/// left of that machinery is the hole itself, which was never scaffolding - the viewport is one.
 /// </para>
 /// </summary>
 public static class EditorLayout
 {
     /// <summary>
     /// Every hole is the same view, because a hole is not an interface - it is the part of the
-    /// window Ptah does not draw. Two of them side by side are one hole for the same reason: a
-    /// boundary between two regions the shell does not own is a splitter that would move nothing.
+    /// window the shell does not draw. Two of them side by side are one hole for the same reason:
+    /// a boundary between two regions the shell does not own is a splitter that would move
+    /// nothing and still take the mouse.
+    /// <para>
+    /// One hole is in the spec - the viewport, which the renderer has already drawn into by the
+    /// time the shell records. The others are made: a column whose panels are all hidden is a
+    /// hole, and it joins the viewport beside it.
+    /// </para>
     /// </summary>
     public static readonly ViewId Hole = new("hole");
-
-    /// <summary>
-    /// The panels the Ptah shell draws. Everything else in <see cref="Columns"/> is still a Dear
-    /// ImGui window, drawn over the hole its place in the layout leaves.
-    /// </summary>
-    public static readonly ImmutableHashSet<PanelId> Ported = ImmutableHashSet.Create(
-        PanelId.GpuTimings,
-        PanelId.Visualization,
-        PanelId.Lighting,
-        PanelId.Inspector,
-        PanelId.Scene,
-        PanelId.AssetBrowser,
-        PanelId.Project);
 
     /// <summary>A panel's share of the column it is in. Shares are relative; only their ratio matters.</summary>
     private readonly record struct PanelSpec(PanelId Panel, float Share);
@@ -226,9 +218,9 @@ public static class EditorLayout
                 continue;
             }
 
-            // A column with nothing of Ptah's in it is a hole, and a hole beside a hole is one
-            // hole: the viewport and the columns that are still ImGui's are one region as far as
-            // this layout is concerned, and a boundary drawn inside it would move nothing.
+            // A column with nothing showing in it is a hole, and a hole beside a hole is one
+            // hole: the viewport and any column emptied by hiding its panels are one region as
+            // far as this layout is concerned, and a boundary drawn inside it would move nothing.
             if (slots.Count > 0 && slots[^1].Leaves.Length == 0)
                 slots[^1] = slots[^1] with { Width = slots[^1].Width + column.Width };
             else
@@ -239,36 +231,16 @@ public static class EditorLayout
     }
 
     /// <summary>
-    /// One column's leaves: a panel for each ported entry, and one hole for each run of entries
-    /// that are still ImGui's - so a panel that has not moved yet keeps its place in the layout
-    /// and its window shows through the gap left for it. A hidden panel is in neither, because
-    /// hiding one is meant to give its space back.
+    /// One column's leaves: the panels in it that are showing, in the order the spec names them.
+    /// A hidden panel is not a leaf at all, because hiding one is meant to give its space back to
+    /// the panels around it rather than to leave a gap nothing draws in.
     /// </summary>
-    private static LeafSpec[] Leaves(AppUiModel app, ColumnSpec column)
-    {
-        var leaves = new List<LeafSpec>();
-        bool ours = false;
-
-        foreach (PanelSpec spec in column.Panels)
-        {
-            if (!app.IsPanelVisible(spec.Panel))
-                continue;
-
-            if (Ported.Contains(spec.Panel))
-            {
-                leaves.Add(new LeafSpec(ViewOf(spec.Panel), spec.Share));
-                ours = true;
-                continue;
-            }
-
-            if (leaves.Count > 0 && IsHole(leaves[^1].View))
-                leaves[^1] = leaves[^1] with { Share = leaves[^1].Share + spec.Share };
-            else
-                leaves.Add(new LeafSpec(Hole, spec.Share));
-        }
-
-        return ours ? [.. leaves] : [];
-    }
+    private static LeafSpec[] Leaves(AppUiModel app, ColumnSpec column) =>
+    [
+        .. column.Panels
+            .Where(spec => app.IsPanelVisible(spec.Panel))
+            .Select(spec => new LeafSpec(ViewOf(spec.Panel), spec.Share)),
+    ];
 
     private static ViewId FirstView(Slot slot) =>
         slot.Leaves.Length == 0 ? Hole : slot.Leaves[0].View;

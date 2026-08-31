@@ -9,11 +9,6 @@
     <ProjectReference Include="..\RenderLab.Project\RenderLab.Project.csproj" />
     <ProjectReference Include="..\RenderLab.Papers\RenderLab.Papers.csproj" />
     <ProjectReference Include="..\RenderLab.Ui\RenderLab.Ui.csproj" />
-    <ProjectReference Include="..\RenderLab.Ui.ImGui\RenderLab.Ui.ImGui.csproj" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <PackageReference Include="ImGui.NET" Version="1.91.6.1" />
   </ItemGroup>
 
   <PropertyGroup>

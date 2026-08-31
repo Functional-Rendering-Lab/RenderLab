@@ -12,7 +12,6 @@ RenderLab.App              (desktop composition root — Application + Program)
   |     |-> RenderLab.Papers     (paper implementations — straddle pure/impure)
   |     |     |-> RenderLab.Scene
   |     |     '-> RenderLab.Gpu
-  |     |-> RenderLab.Ui.ImGui   (UiView + GpuTimestamps — used by DeferredPipeline)
   |     |-> RenderLab.Ui
   |     |-> RenderLab.Assets
   |     |-> RenderLab.Graph
@@ -23,38 +22,36 @@ RenderLab.App              (desktop composition root — Application + Program)
   |     |-> RenderLab.Assets
   |     '-> RenderLab.Functional (Optional, Result, Pipe)
   |-> RenderLab.Project    (read project.json + *.scene.json from disk)
-  |-> RenderLab.Ui         (pure Elm-style state: Model/Msg/Update/Intent — no ImGui, no Vulkan)
-  |-> RenderLab.Ui.ImGui   (imperative shell for RenderLab.Ui: ImGui views + GPU timestamps -> depends on Gpu, Ui)
-  |-> RenderLab.Editor     (the Ptah view layer replacing Ui.ImGui -> depends on Gpu, Ui, Assets, Project + Ptah)
+  |-> RenderLab.Ui         (pure Elm-style state: Model/Msg/Update/Intent — no UI framework, no Vulkan)
+  |-> RenderLab.Editor     (the view layer: Ptah shell + panels -> depends on Gpu, Ui, Assets, Project + Ptah)
   '-> RenderLab.Platform.Desktop  (GLFW window — no internal deps)
 ```
 
-No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero side-effect dependencies (no Vulkan, no ImGui).
+No circular dependencies. `Graph`, `Scene`, `Functional`, and `Ui` have zero side-effect dependencies (no Vulkan, no UI framework). Neither has `Pipelines`: a rendering technique that wanted a control used to draw its own ImGui window, and what it exposes now is state on `UiModel` that the editor already has panels for.
 
-### Ui ↔ Ui.ImGui split
+### Ui ↔ Editor split
 
-`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `FrameStats`, plus `EditableDrawable` (the editor-side mirror of a scene `Drawable`). It has no `ImGuiNET` or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
+`RenderLab.Ui` holds the pure state layer — `AppUiModel`, `AppUiMsg`, `AppUiUpdate`, `UiIntent`, `VisualizationMode`, `FrameStats`, plus `EditableDrawable` (the editor-side mirror of a scene `Drawable`). It has no UI-framework or Vulkan references, so it can be unit-tested without a GPU (see `tests/RenderLab.Ui.Tests`).
 
-`RenderLab.Ui.ImGui` is the imperative shell that *renders* that pure state with `ImGuiNET` and owns GPU-side debug plumbing (`VulkanImGui`, `GpuTimestamps`). It is being replaced panel by panel by `RenderLab.Editor` (below), and what is left in it is `RenderGraphDebugMenu`, the main menu bar, and the dockspace that places the one panel still drawn through it.
+`RenderLab.Editor` is the imperative shell that *renders* that pure state, built on Ptah. It replaced `RenderLab.Ui.ImGui` panel by panel and that project is gone; `GpuTimestamps`, which was never about a UI framework, moved to `RenderLab.Gpu.Debug` where `DeviceCapabilities` had been referring to it all along.
 
 Panels split into two roles, and the split survives the change of framework. **Outliners / browsers** list items and emit `UiMsg.Select` when one is clicked; the **`InspectorPanel`** switches on `UiModel.Selection` and renders the editor for the selected item — a drawable's transform/mesh/material, a light's fields, a material asset's parameters, a mesh or texture asset's import settings, or the `Camera` and `Environment` pseudo-items (ambient + clear color + background mode). Only the Inspector edits item properties; the Lighting panel keeps the shading-model and lighting-only toggles (render-mode, not item edits), and add / remove / rename / delete remain on the outliners as list operations. `Selection` is a discriminated union — `None | Drawable | Light | MaterialAsset | MeshAsset | TextureAsset | Environment | Camera` — so removing the currently-selected item collapses to a single reducer rule.
 
-### RenderLab.Editor: the view layer replacing Ui.ImGui
+### RenderLab.Editor: the view layer
 
-`RenderLab.Editor` is the second view layer over the same `RenderLab.Ui`, built on Ptah instead of Dear ImGui, and the two run side by side while the migration is in flight. The phases and their current state are in `docs/plans/imgui-replacement-feasibility.md` in the Ptah repository, which is checked out beside this one.
+`RenderLab.Editor` is the view layer over `RenderLab.Ui`, built on Ptah. It began as a second one drawn beside Dear ImGui and replaced it panel by panel; the migration and what each phase cost are recorded in `docs/plans/imgui-replacement-feasibility.md` in the Ptah repository, which is checked out beside this one.
 
-It is named for what it is rather than for the library that draws it, and its `Draw` has the same shape as `UiView.Draw` — model in, `UiViewResult` out — so `Application` folds one kind of result whichever framework produced it, and the day the last panel moves the ImGui half is deleted rather than untangled.
+It is named for what it is rather than for the library that draws it, which is the mistake `RenderLab.Ui.ImGui` recorded. `Draw` takes the model and hands back a `UiViewResult`, so the frame loop folds one value and the view layer decides nothing about what a message means.
 
-- `PtahUi` is the counterpart of `VulkanImGui`: the font atlas, the `UIContext`, the input translation over the `IInputContext` `DesktopWindow` already owns, and the draw target. Ptah's Vulkan backend creates no device, no swapchain and no frame loop — it borrows handles and records into the command buffer `Application` is already recording, in its own instance of the overlay pass.
-- `EditorLayout` is the shell: the three-column arrangement the dock ini settled on, written once in code, with the docking machinery left behind. It names every panel in its final place and `Ported` says which of them Ptah draws today; a panel that has not moved leaves a hole in the layout, and its ImGui window is still drawn there.
+- `PtahUi` is what `VulkanImGui` used to be and a great deal less of it: the font atlas, the `UIContext`, the input translation over the `IInputContext` `DesktopWindow` already owns, and the draw target. Ptah's Vulkan backend creates no device, no swapchain and no frame loop — it borrows handles and records into the command buffer `Application` is already recording, in its own instance of the overlay pass.
+- `EditorLayout` is the shell: the three-column arrangement the dock ini settled on, written once in code, with the docking machinery left behind. A column with nothing showing in it is a hole, and holes beside each other are one hole — which is how the viewport is expressed, and how a column whose panels are all hidden gives its width back.
+- `EditorMenuBar` is File and View. An entry is a label and a string, and one `Dispatch` turns the string into an `AppUiMsg`; both menus are built from the model each frame, because a tick, a greyed-out line and the list of scenes are all facts about the program as it is now.
 - `EditorView` holds the panel tree and dispatches to the ported panels. `EditorTheme` is RenderLab's palette written as a Ptah theme, and `WidgetState` holds the interface's own state — which drop-down is open, which colour picker — which is deliberately not in `UiModel`.
-- The panels themselves are one file each: `GpuTimingsPanel`, `VisualizationPanel`, `LightingPanel`, `InspectorPanel`, `ScenePanel`, `AssetBrowserPanel`, `ProjectPanel`. `DebugFields` has no counterpart, because Ptah's `WidgetKit` is it.
+- The panels themselves are one file each: `GpuTimingsPanel`, `VisualizationPanel`, `LightingPanel`, `InspectorPanel`, `ScenePanel`, `AssetBrowserPanel`, `ProjectPanel`, `RenderGraphPanel`. `DebugFields` has no counterpart, because Ptah's `WidgetKit` is it.
 - `AssetDialogs` holds the rename and delete dialogs, drawn once per frame from `WidgetState.Dialog` and beside the panel tree rather than inside the panel that opens them: a modal dims the whole window and takes the mouse and keyboard from everything behind it, including that panel. Dear ImGui's popups are opened by id at the row's own call site, so the ImGui version built both dialogs once per asset and needed a dictionary of drafts keyed by guid; here, whether a dialog is up is application state and there is one of it.
 - Adding a project mesh to the scene is `Add to Scene` on the Asset Browser's context menu, which dispatches the `AppUiMsg.RequestAddDrawableFromAsset` the drag-and-drop payload used to. The gesture changed; nothing downstream of the panel can tell.
 
 A frame of the shell needs a text measurer and nothing else, so it can be built headlessly — `tests/RenderLab.Editor.Tests` builds real frames, walks every branch of the Inspector, and drives whole gestures (a click on a row, a context menu, a dialog answered) without a GPU or a hand on the mouse.
-
-The assembly is `RenderLab.Ui.ImGui` but the last namespace segment collides with `ImGuiNET.ImGui` (the ImGui entry-point class) during simple-name lookup. To keep the assembly name matching the folder, each file declares a `using ImGui = ImGuiNET.ImGui;` alias *inside* the namespace — compilation-unit aliases lose to the parent-namespace walk-up, so the alias must live after `namespace RenderLab.Ui.ImGui;`.
 
 ## Purity Boundary
 
@@ -62,7 +59,7 @@ Everything in `RenderLab.Graph`, `RenderLab.Scene`, and `RenderLab.Assets` is pu
 
 Everything in `RenderLab.Gpu` and `RenderLab.Platform.Desktop` performs side effects. `GpuState` is the single mutable kernel, passed explicitly by reference — never global, never static. `DeviceCapabilities` is an immutable record on `GpuState`, queried once at device creation — papers read it instead of calling Vulkan directly.
 
-GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Allocator.cs`), hung off `GpuState.Allocator`. Every `vkAllocateMemory` goes through it; resource creation returns `(handle, Allocation)` so buffer/memory lifetimes are coupled at the type level, and callers pick a `MemoryIntent` (`GpuOnly`, `CpuToGpu`) instead of hand-rolling memory-property flags. The ImGui per-frame vertex/index buffers grow in doubling steps and stay mapped for the lifetime of the instance, so `vkAllocateMemory` fires O(log N) times at warm-up rather than every resize. Sub-allocation stays on the roadmap for when it becomes a measurable bottleneck.
+GPU memory flows through a single engine-owned surface: `Allocator` (`Gpu/Allocator.cs`), hung off `GpuState.Allocator`. Every `vkAllocateMemory` goes through it; resource creation returns `(handle, Allocation)` so buffer/memory lifetimes are coupled at the type level, and callers pick a `MemoryIntent` (`GpuOnly`, `CpuToGpu`) instead of hand-rolling memory-property flags. The interface's per-frame vertex/index buffers grow in doubling steps and stay mapped for the lifetime of the instance, so `vkAllocateMemory` fires O(log N) times at warm-up rather than every resize. Sub-allocation stays on the roadmap for when it becomes a measurable bottleneck.
 
 ### Asset boundary
 
@@ -70,7 +67,7 @@ Pure code references meshes, textures, and materials by typed ID — `MeshId` / 
 
 Material assets are mutable in place — the editor edits the named asset by id rather than carrying a copy of the parameters on each `Drawable`. The pure UI reducer treats `UiMsg.UpdateMaterialAsset` as a no-op; the shell intercepts those messages and applies them to the registry before resolving the next frame.
 
-`Program.cs` (desktop) is a thirty-line composition root: it builds a `PipelineRegistry` (one factory per pipeline id), picks a project path from argv, and hands both to `Application.Run`. The `Application` owns the window, `GpuState`, `AssetRegistry`, ImGui shell, and the editor's `UiModel` when the active pipeline declares `ConsumesScenes`. Each runnable workspace lives on disk as a project — see [`PROJECT-MODEL.md`](PROJECT-MODEL.md).
+`Program.cs` (desktop) is a thirty-line composition root: it builds a `PipelineRegistry` (one factory per pipeline id), picks a project path from argv, and hands both to `Application.Run`. The `Application` owns the window, `GpuState`, `AssetRegistry`, the editor shell, and the `UiModel` — which every pipeline reads, whether or not it declares `ConsumesScenes`, since the camera and the visualization are the editor's. Each runnable workspace lives on disk as a project — see [`PROJECT-MODEL.md`](PROJECT-MODEL.md).
 
 ### Swapchain present mode (lab policy)
 
@@ -130,7 +127,7 @@ Lighting pass       -> reads GBuffer textures via descriptor set 0, writes HDR i
   |
 Tonemap pass        -> reads HDR, writes to swapchain backbuffer
   |
-ImGui overlay       -> Application records on top (outside the pipeline's render graph)
+Editor overlay      -> Application records on top (outside the pipeline's render graph)
 ```
 
 ## Key Abstractions
@@ -174,7 +171,7 @@ ImGui overlay       -> Application records on top (outside the pipeline's render
 | `ShaderHotReload` | `Gpu/ShaderHotReload.cs` | Debug-only file watcher over `src/RenderLab.Shaders/` that shells out to `glslc` on change and invokes the active pipeline's `ReloadShaders`. F5 force-reloads everything. Silently disables itself when `glslc` is missing or the source tree is unreachable (published build). See [`HOT-SHADER-RELOAD.md`](HOT-SHADER-RELOAD.md) |
 | `PipelineRegistry` | `Pipelines/PipelineRegistry.cs` | Maps the `pipeline` string in `project.json` to a factory (`Resolve` returns a `Result`) |
 | `SceneLoader` / `SceneAssetResolver` / `SceneBuilder` | `Pipelines/*.cs` | `SceneLoader` turns a `SceneDocument` into a runtime `UiModel` by walking each drawable's `AssetRef` through `SceneAssetResolver`, which lazily registers previously-unseen refs into `AssetRegistry` and caches the id across scene swaps. `SceneBuilder` is the pure projection from `UiModel` + aspect → immutable `Scene` snapshot |
-| `Application` | `App/Application.cs` | Single composition root replacing the per-demo bootstraps. Hosts window/GPU/ImGui/AssetRegistry/UiModel; drives the frame loop; routes registry-side asset edits (import, remove) for the deferred pipeline |
+| `Application` | `App/Application.cs` | Single composition root replacing the per-demo bootstraps. Hosts window/GPU/editor/AssetRegistry/UiModel; drives the frame loop; routes registry-side asset edits (import, remove) for the deferred pipeline |
 
 ## Build and Run
 
@@ -220,8 +217,7 @@ src/
   RenderLab.Papers/            Pass modules: GBufferPass, DeferredLighting,
                                TonemapPass, DebugVizPass
   RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
-  RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views + GPU timestamps
-  RenderLab.Editor/            Ptah view layer replacing Ui.ImGui (shell layout + ported panels)
+  RenderLab.Editor/            The view layer: Ptah shell layout, menu bar, and panels
   RenderLab.Project/           Pure project + scene document model + JSON IO;
                                project asset index + scanner (Project panel)
   RenderLab.Pipelines/         IPipeline + Triangle/GBuffer/Deferred + SceneLoader + SceneBuilder

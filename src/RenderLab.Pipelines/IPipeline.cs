@@ -15,18 +15,39 @@ using Scene = RenderLab.Scene.Scene;
 /// Owns its render passes, descriptor set layouts, framebuffers, and per-frame
 /// command recording. The <c>Application</c> hosts a single pipeline at a time,
 /// hands it the active scene each frame, and supplies the editor UI shell
-/// (window, ImGui, menu bar). Pipelines that don't consume scenes (e.g.
+/// (window, menu bar, panels). Pipelines that don't consume scenes (e.g.
 /// triangle) ignore the scene argument.
+/// <para>
+/// Nothing here draws an interface. A pipeline that wanted a control used to draw
+/// its own ImGui window, which put a UI framework in the dependencies of a
+/// rendering technique and put the control somewhere the editor could not see it;
+/// what a pipeline exposes now is state on <see cref="UiModel"/>, which the editor
+/// already has panels for.
+/// </para>
 /// </summary>
 public interface IPipeline : IDisposable
 {
+    /// <summary>Every visualization there is - what a pipeline offers unless it says otherwise.</summary>
+    static readonly ImmutableArray<VisualizationMode> AllVisualizations =
+        [.. Enum.GetValues<VisualizationMode>()];
+
     /// <summary>The pipeline's id as it appears in <c>project.json</c>.</summary>
     string Id { get; }
 
     /// <summary>True if the editor should expose the Scene + AssetBrowser
-    /// panels and the pipeline reads <see cref="UiModel"/> in
+    /// panels and the pipeline is handed a built <c>Scene</c> in
     /// <see cref="RecordFrame"/>.</summary>
     bool ConsumesScenes { get; }
+
+    /// <summary>
+    /// Which visualizations this pipeline can actually resolve to the screen. The
+    /// Visualization panel offers these and no others, and the Application moves
+    /// <see cref="UiModel.Viz"/> into the set when a pipeline is loaded — so what
+    /// the panel says and what the screen shows cannot disagree. A pipeline with
+    /// no lighting has no Final and no HDR to offer, which is the case this
+    /// exists for.
+    /// </summary>
+    ImmutableArray<VisualizationMode> SupportedVisualizations => AllVisualizations;
 
     /// <summary>
     /// Build long-lived GPU resources (render passes, pipeline state, descriptor
@@ -51,29 +72,18 @@ public interface IPipeline : IDisposable
     void TickStats() { }
 
     /// <summary>
-    /// Forward a per-frame camera input to pipelines that own their own
-    /// camera state. <c>ConsumesScenes</c> pipelines ignore this — the
-    /// Application updates <see cref="UiModel.Camera"/> directly. The
-    /// Application skips this call when the previous frame's UI captured the
-    /// mouse.
-    /// </summary>
-    void HandleInput(CameraInput input) { }
-
-    /// <summary>
     /// Record one frame's draw commands into <paramref name="cb"/>. The command
     /// buffer is in the recording state. The Application handles
-    /// BeginFrame/EndFrame and the ImGui overlay pass after this returns;
+    /// BeginFrame/EndFrame and the editor's overlay pass after this returns;
     /// pipelines must leave the swapchain image in <c>PresentSrcKhr</c>.
+    /// <para>
+    /// <paramref name="ui"/> is always supplied. It used to be null for pipelines
+    /// that consume no scene, back when such a pipeline kept its own camera and
+    /// its own visualization behind windows it drew itself; the editor owns both
+    /// now, so every pipeline reads them from the same place.
+    /// </para>
     /// </summary>
-    void RecordFrame(GpuState gpu, CommandBuffer cb, Scene? scene, UiModel? ui, double deltaSeconds, uint imageIndex);
-
-    /// <summary>
-    /// Draw any pipeline-specific ImGui windows (e.g. GBuffer's vizMode
-    /// combo). Called between <c>NewFrame</c> and the editor panels. The
-    /// editor's <c>UiView</c> already covers the deferred panels — this is
-    /// for pipelines that ride outside that pure shell.
-    /// </summary>
-    void DrawDebugUi() { }
+    void RecordFrame(GpuState gpu, CommandBuffer cb, Scene? scene, UiModel ui, double deltaSeconds, uint imageIndex);
 
     /// <summary>
     /// Per-frame snapshot of pipeline-internal stats (GPU timestamps, the

@@ -1,3 +1,4 @@
+using System.Collections.Immutable;
 using System.Numerics;
 using Silk.NET.Vulkan;
 using RenderLab.Gpu;
@@ -26,6 +27,12 @@ public sealed class TrianglePipeline : IPipeline
 {
     public string Id => "triangle";
     public bool ConsumesScenes => false;
+
+    /// <summary>
+    /// None. It draws one hard-coded triangle straight to the swapchain: there are no G-buffer
+    /// attachments to choose between, so the Visualization panel has nothing to offer for it.
+    /// </summary>
+    public ImmutableArray<VisualizationMode> SupportedVisualizations => [];
 
     GpuState gpu = null!;
     RenderPass renderPass;
@@ -86,7 +93,7 @@ public sealed class TrianglePipeline : IPipeline
         framebuffers = VulkanPipeline.CreateFramebuffers(gpu, renderPass);
     }
 
-    public unsafe void RecordFrame(GpuState gpuState, CommandBuffer cmd, Scene? _, UiModel? __, double ___, uint imageIndex)
+    public unsafe void RecordFrame(GpuState gpuState, CommandBuffer cmd, Scene? _, UiModel __, double ___, uint imageIndex)
     {
         var clearColor = new ClearValue(new ClearColorValue(0.1f, 0.1f, 0.1f, 1.0f));
         var begin = new RenderPassBeginInfo

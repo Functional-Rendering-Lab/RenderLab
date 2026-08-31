@@ -1,6 +1,6 @@
+using System.Collections.Immutable;
 using System.Numerics;
 using System.Runtime.InteropServices;
-using ImGuiNET;
 using Silk.NET.Vulkan;
 using RenderLab.Assets;
 using RenderLab.Gpu;
@@ -14,7 +14,6 @@ using Framebuffer = Silk.NET.Vulkan.Framebuffer;
 namespace RenderLab.Pipelines;
 
 using Scene = RenderLab.Scene.Scene;
-using ImGui = ImGuiNET.ImGui;
 
 // ─── Post 3: G-Buffer Only ──────────────────────────────────────────
 // Matches blog post 3: "What a Frame Knows Before It Sees the Light."
@@ -25,16 +24,20 @@ using ImGui = ImGuiNET.ImGui;
 
 /// <summary>
 /// Standalone G-Buffer pipeline: one mesh, four debug visualizations,
-/// hand-managed barriers. Owns its camera state so it does not consume
-/// editor scenes.
+/// hand-managed barriers. It consumes no editor scene - it draws one cube of
+/// its own - but it reads the editor's camera and visualization like every
+/// other pipeline, so the panels that steer it are the ones already on screen.
 /// </summary>
 public sealed class GBufferPipeline : IPipeline
 {
     public string Id => "gbuffer";
     public bool ConsumesScenes => false;
 
-    static readonly string[] ModeNames = ["Position", "Normal", "Albedo", "Depth"];
-    static readonly VisualizationMode[] Modes =
+    /// <summary>
+    /// The four attachments this pipeline fills, and no more: there is no lighting pass here, so
+    /// there is no Final and no HDR to resolve. The Visualization panel offers exactly this list.
+    /// </summary>
+    public ImmutableArray<VisualizationMode> SupportedVisualizations { get; } =
     [
         VisualizationMode.Position, VisualizationMode.Normal,
         VisualizationMode.Albedo, VisualizationMode.Depth,
@@ -65,10 +68,10 @@ public sealed class GBufferPipeline : IPipeline
     // Materials (white fallback only — registry owned by Application)
     MaterialDescriptors materials = null!;
 
-    // Camera
-    FreeCameraState cameraState;
+    // This frame's camera and mode, taken from UiModel at the top of RecordFrame and read by the
+    // recorders below. Not state: the editor holds both, and these are what it said this frame.
     Camera camera = null!;
-    VisualizationMode vizMode = VisualizationMode.Position;
+    VisualizationMode vizMode;
 
     // Per-frame camera UBOs (host-visible, persistently mapped). One mat4 each.
     Buffer[] cameraBuffers = [];
@@ -112,7 +115,6 @@ public sealed class GBufferPipeline : IPipeline
 
         BuildPipelines();
 
-        cameraState = FreeCameraController.CreateDefault();
         sampler = VulkanImage.CreateSampler(gpu);
         CreateCameraBuffers();
 
@@ -179,58 +181,19 @@ public sealed class GBufferPipeline : IPipeline
         debugVizAlbedoSets    = VulkanDescriptors.AllocateSets(gpu, debugVizDescPool, singleDsLayout, frames, gbufferAlbView, sampler);
         debugVizDepthSets     = VulkanDescriptors.AllocateSets(gpu, debugVizDescPool, singleDsLayout, frames, depthView, sampler,
             ImageLayout.DepthStencilReadOnlyOptimal);
-
-        camera = FreeCameraController.ToCamera(cameraState, (float)w / h);
     }
 
-    public void HandleInput(CameraInput input)
+    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? __, UiModel ui, double ___, uint imageIndex)
     {
-        cameraState = FreeCameraController.Update(cameraState, input);
-        camera = FreeCameraController.ToCamera(cameraState,
+        // The editor drives this pipeline now. Which attachment reaches the screen is the
+        // Visualization panel's, and the camera is the Inspector's - both used to be private
+        // fields behind two ImGui windows this file drew for itself, which is how a rendering
+        // technique ended up with a UI framework among its dependencies and two controls the
+        // editor could not see.
+        vizMode = ui.Viz;
+        camera = FreeCameraController.ToCamera(ui.Camera,
             (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
-    }
 
-    public void DrawDebugUi()
-    {
-        ImGui.SetNextWindowPos(new Vector2(10, 30), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 60), ImGuiCond.FirstUseEver);
-        if (ImGui.Begin("G-Buffer Visualization"))
-        {
-            int idx = Array.IndexOf(Modes, vizMode);
-            if (idx < 0) idx = 0;
-            if (ImGui.Combo("Buffer", ref idx, ModeNames, ModeNames.Length))
-                vizMode = Modes[idx];
-        }
-        ImGui.End();
-
-        FreeCameraDebugMenu(ref cameraState);
-        camera = FreeCameraController.ToCamera(cameraState,
-            (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
-    }
-
-    static void FreeCameraDebugMenu(ref FreeCameraState state)
-    {
-        ImGui.SetNextWindowPos(new Vector2(10, 100), ImGuiCond.FirstUseEver);
-        ImGui.SetNextWindowSize(new Vector2(280, 100), ImGuiCond.FirstUseEver);
-        if (!ImGui.Begin("Camera"))
-        {
-            ImGui.End();
-            return;
-        }
-        var pos = state.Position;
-        if (ImGui.DragFloat3("Position", ref pos, 0.05f))
-            state = state with { Position = pos };
-        var yaw = state.Yaw * 180f / MathF.PI;
-        if (ImGui.SliderFloat("Yaw", ref yaw, -180, 180))
-            state = state with { Yaw = yaw * MathF.PI / 180f };
-        var pitch = state.Pitch * 180f / MathF.PI;
-        if (ImGui.SliderFloat("Pitch", ref pitch, -89, 89))
-            state = state with { Pitch = pitch * MathF.PI / 180f };
-        ImGui.End();
-    }
-
-    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? __, UiModel? ___, double ____, uint imageIndex)
-    {
         RecordGBufferPass(cb);
         InsertGBufferBarriers(cb);
         RecordDebugVizPass(cb, imageIndex);

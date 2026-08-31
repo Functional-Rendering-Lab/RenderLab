@@ -5,11 +5,11 @@ using Silk.NET.Vulkan;
 using RenderLab.Assets;
 using RenderLab.Gpu;
 using RenderLab.Gpu.Assets;
+using RenderLab.Gpu.Debug;
 using RenderLab.Graph;
 using RenderLab.Papers;
 using RenderLab.Scene;
 using RenderLab.Ui;
-using RenderLab.Ui.ImGui;
 using Buffer = Silk.NET.Vulkan.Buffer;
 using Framebuffer = Silk.NET.Vulkan.Framebuffer;
 
@@ -89,7 +89,7 @@ public sealed class DeferredPipeline : IPipeline
     // Captured each RecordFrame so the GBuffer recorder closure can read
     // the per-frame scene without an extra parameter.
     Scene? currentScene;
-    UiModel? currentUi;
+    UiModel currentUi = UiModel.Default;
 
     public void Initialize(GpuState gpuState, AssetRegistry assetRegistry, RenderPass overlayRenderPass)
     {
@@ -250,10 +250,10 @@ public sealed class DeferredPipeline : IPipeline
 
     public void TickStats() => timestamps.ReadResults();
 
-    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? scene, UiModel? ui, double deltaSeconds, uint imageIndex)
+    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? scene, UiModel ui, double deltaSeconds, uint imageIndex)
     {
         currentScene = scene ?? throw new InvalidOperationException("DeferredPipeline requires a scene");
-        currentUi    = ui    ?? throw new InvalidOperationException("DeferredPipeline requires a UiModel");
+        currentUi    = ui;
 
         timestamps.Reset(gpu.Vk, cb);
 
@@ -309,7 +309,7 @@ public sealed class DeferredPipeline : IPipeline
     {
         timestamps.BeginPass(api, cb, "Lighting");
         var lightCount = UploadLightsForCurrentFrame();
-        var ui = currentUi!;
+        var ui = currentUi;
         var scene = currentScene!;
         var resources = new LightingPassResources(
             RenderPass: lightingRenderPass,
@@ -337,7 +337,7 @@ public sealed class DeferredPipeline : IPipeline
     void RecordTonemapPass(Vk api, CommandBuffer cb, uint imageIndex)
     {
         timestamps.BeginPass(api, cb, "Tonemap");
-        var ui = currentUi!;
+        var ui = currentUi;
 
         if (ui.Viz == VisualizationMode.Depth)
             TransitionDepthForSampling(api, cb);

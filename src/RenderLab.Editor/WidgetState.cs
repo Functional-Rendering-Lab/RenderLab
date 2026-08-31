@@ -26,6 +26,9 @@ internal sealed class WidgetState
     /// <summary>The open drop-down: every combo in the editor, and every context menu.</summary>
     internal readonly PopupState Popups = new();
 
+    /// <summary>Which menu of the main bar is open, and which branch of it.</summary>
+    internal readonly MenuBarState Menus = new();
+
     /// <summary>The open colour picker, and the hue and saturation it is working in.</summary>
     internal readonly ColorState Colors = new();
 

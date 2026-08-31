@@ -1,6 +1,5 @@
 using System.Collections.Immutable;
 using System.Numerics;
-using ImGuiNET;
 using Silk.NET.Input;
 using Silk.NET.Vulkan;
 using RenderLab.Assets;
@@ -13,18 +12,16 @@ using RenderLab.Platform.Desktop;
 using RenderLab.Project;
 using RenderLab.Scene;
 using RenderLab.Ui;
-using RenderLab.Ui.ImGui;
 using Framebuffer = Silk.NET.Vulkan.Framebuffer;
 
 namespace RenderLab.App;
 
 using Scene = RenderLab.Scene.Scene;
-using ImGuiApi = ImGuiNET.ImGui;
 using Result = RenderLab.Functional.Result;
 
 /// <summary>
 /// The single composition root that replaces the per-demo bootstraps. Owns
-/// window, GPU, asset registry, ImGui shell and main loop. Loads a project
+/// window, GPU, asset registry, editor shell and main loop. Loads a project
 /// from disk, instantiates the project's pipeline, opens its default scene
 /// (when the pipeline consumes scenes), and drives the frame loop. Handles
 /// project / scene lifecycle requests from the menu (open, switch scene,
@@ -46,10 +43,9 @@ public sealed class Application : IDisposable
     GpuState gpu = null!;
     AssetRegistry assets = null!;
     SceneAssetResolver resolver = null!;
-    VulkanImGui imgui = null!;
 
-    // The editor's Ptah shell, drawn beside the ImGui one until the last panel has moved into
-    // it. The view holds the panel tree; the shell holds the atlas, the context, and the target.
+    // The editor. The view holds the panel tree; the shell holds the atlas, the context, the
+    // input translation and the draw target.
     PtahUi ptah = null!;
     readonly EditorView editor = new();
 
@@ -67,11 +63,6 @@ public sealed class Application : IDisposable
     AppUiModel app = AppUiModel.Default;
     UiModel ui = UiModel.Default;
     UiIntent lastIntent = UiIntent.None;
-
-    // The Ptah half of it, kept apart because it also decides what reaches ImGui: the shell
-    // records last and is therefore on top, so a click on one of its panels must not fall
-    // through to a window behind it.
-    UiIntent lastPtahIntent = UiIntent.None;
 
     public Application(PipelineRegistry registry, IProceduralAssetSource procedural)
     {
@@ -129,7 +120,7 @@ public sealed class Application : IDisposable
                 pipelineRes.Match<PipelineError>(_ => null!, e => e).Message);
         var newPipeline = pipelineRes.Match(ok: p => p, error: _ => null!);
 
-        // First call: bring up window + GPU + ImGui + registry. Re-entrant
+        // First call: bring up window + GPU + editor + registry. Re-entrant
         // calls (project switch) reuse the existing infrastructure but
         // dispose the previous pipeline and clear the registry so the new
         // pipeline's Initialize can register its own resources.
@@ -158,6 +149,13 @@ public sealed class Application : IDisposable
         activeScenePath = "";
         pipeline.Initialize(gpu!, assets, overlayRenderPass);
         pipeline.RecreateTransient(gpu!);
+
+        // The Visualization panel offers what this pipeline can resolve, so the model has to name
+        // one of those or the panel would show nothing chosen while the screen showed something.
+        // UiModel.Default asks for Final, which a pipeline with no lighting pass does not have.
+        var modes = pipeline.SupportedVisualizations;
+        if (!modes.IsEmpty && !modes.Contains(ui.Viz))
+            ui = ui with { Viz = modes[0] };
         hotReload.OnReload = g => pipeline.ReloadShaders(g);
 
         var availableScenes = manifest.Scenes.Length > 0
@@ -242,7 +240,6 @@ public sealed class Application : IDisposable
         resolver = new SceneAssetResolver(assets);
         overlayRenderPass = VulkanPipeline.CreateOverlayRenderPass(gpu);
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
-        imgui = VulkanImGui.Create(gpu, overlayRenderPass);
         ptah = PtahUi.Create(gpu, overlayRenderPass, window.Input).Match(
             ok: shell => shell,
             error: failure => throw new InvalidOperationException(
@@ -294,36 +291,18 @@ public sealed class Application : IDisposable
 
             var prevUi = ui;
 
+            // One camera, whether or not the pipeline consumes a scene. A scene-less pipeline
+            // used to keep its own and be fed through IPipeline.HandleInput, which is also why it
+            // had to draw its own window to show the numbers.
             if (!lastIntent.WantCaptureMouse)
-            {
-                if (pipeline.ConsumesScenes)
-                    ui = ui with { Camera = FreeCameraController.Update(ui.Camera, cameraInput) };
-                else
-                    pipeline.HandleInput(cameraInput);
-            }
+                ui = ui with { Camera = FreeCameraController.Update(ui.Camera, cameraInput) };
 
             float aspect = (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height;
             Scene? scene = pipeline.ConsumesScenes ? SceneBuilder.BuildScene(ui, aspect) : null;
 
-            // Feed input + keyboard to ImGui IO before NewFrame so widgets
-            // see this frame's interactions (not the previous one's). Buttons stop at the
-            // Ptah shell when the pointer was over one of its panels last frame: the shell
-            // records after ImGui, so what is under one of its panels is behind it, and a
-            // press that reached both would be acted on twice.
-            bool shellHasMouse = lastPtahIntent.WantCaptureMouse;
-            var io = ImGuiApi.GetIO();
-            io.MousePos       = input.MousePosition;
-            io.MouseDown[0]   = input.LeftButtonDown && !shellHasMouse;
-            io.MouseDown[1]   = input.RightButtonDown && !shellHasMouse;
-            io.MouseDown[2]   = input.MiddleButtonDown && !shellHasMouse;
-            io.MouseWheel     = shellHasMouse ? 0f : input.ScrollDelta;
-            foreach (var c in keyboard.TypedChars) io.AddInputCharacter(c);
-            foreach (var (key, down) in keyboard.KeyEvents)
-            {
-                var imKey = SilkKeyToImGui(key);
-                if (imKey != ImGuiKey.None) io.AddKeyEvent(imKey, down);
-            }
-
+            // Nothing to feed an interface here any more. The shell reads the window's own
+            // Silk.NET input context through Ptah's InputTracker, so this frame's mouse and
+            // keyboard reach it without the loop copying them anywhere.
             pipeline.TickStats();
 
             if (!VulkanFrame.BeginFrame(gpu, out var imageIndex))
@@ -334,73 +313,31 @@ public sealed class Application : IDisposable
 
             var cmd = gpu.CommandBuffers[gpu.CurrentFrame];
 
-            // Build ImGui content (NewFrame + panels + DrawDebugUi) before
-            // RecordFrame so the message-driven UiModel changes can land
-            // before the pipeline reads ui in RecordFrame.
-            imgui.NewFrame(window.Width, window.Height, dt);
-
-            // The Ptah shell is built here for the same reason the ImGui panels are: building
-            // it is what produces the model changes the pipeline reads in RecordFrame.
+            // The interface is built before the pipeline records, because building it is what
+            // produces the model changes the pipeline then reads.
             var stats = pipeline.GetFrameStats(dt);
-            var shell = ptah.Frame(window.Width, window.Height,
-                top: ImGuiApi.GetMainViewport().WorkPos.Y, dt,
+            var view = ptah.Frame(window.Width, window.Height, dt,
                 context => editor.Draw(context, app, ui, assets, assetLibrary, projectIndex,
-                    stats, ptah.Cost));
-            lastPtahIntent = shell.Intent;
+                    pipeline.SupportedVisualizations, stats, ptah.Cost));
 
+            ApplyViewMessages(view, prevUi);
+
+            // ApplyViewMessages may have reloaded the scene (registry wiped, ui replaced with
+            // fresh ids). Rebuild the snapshot so drawables reference live assets, not removed
+            // ones.
             if (pipeline.ConsumesScenes)
-            {
-                var view = Merge(shell, UiView.Draw(app, stats));
-                ApplyViewMessages(view, prevUi);
-                pipeline.DrawDebugUi();
-                // ApplyViewMessages may have reloaded the scene (registry
-                // wiped, ui replaced with fresh ids). Rebuild the snapshot
-                // so drawables reference live assets, not removed ones.
                 scene = SceneBuilder.BuildScene(ui, aspect);
-            }
-            else
-            {
-                var menu = new List<AppUiMsg>();
-                AppMenuBar.Draw(app, menu.Add, includeViewMenu: false);
-                pipeline.DrawDebugUi();
-
-                // Folded through the same path as the scene branch, which is also what tells
-                // this branch who wants the mouse: a pipeline's own debug windows used to be
-                // hovered without the camera ever hearing about it.
-                var bare = new UiViewResult(menu, [],
-                    new UiIntent(io.WantCaptureMouse, io.WantCaptureKeyboard));
-                ApplyViewMessages(Merge(shell, bare), prevUi);
-            }
 
             // Pipeline records its passes (must leave swapchain in PresentSrcKhr).
-            pipeline.RecordFrame(gpu, cmd, scene, pipeline.ConsumesScenes ? ui : null, dt, imageIndex);
+            pipeline.RecordFrame(gpu, cmd, scene, ui, dt, imageIndex);
 
-            // Application overlays the ImGui pass on top of whatever the
-            // pipeline left in the swapchain.
-            imgui.RecordCommands(vk, cmd, overlayRenderPass,
-                overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
-
-            // The Ptah shell records last, so a panel that has moved into it is drawn over the
-            // ImGui window it replaced rather than under it.
+            // And the interface goes over the top of it, in an overlay pass of its own.
             ptah.Record(cmd, overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
 
             if (!VulkanFrame.EndFrame(gpu, imageIndex))
                 RecreateSwapchainResources();
         }
     }
-
-    /// <summary>
-    /// One frame drawn by two UI frameworks, folded as one. Both halves emit the same messages
-    /// and answer the same question about the input, so merging them is a concatenation and an
-    /// "or": if either wants the mouse, the camera does not get it. Goes away with the ImGui
-    /// half, along with everything else that exists only because there are two.
-    /// </summary>
-    static UiViewResult Merge(UiViewResult shell, UiViewResult panels) => new(
-        [.. shell.AppMessages, .. panels.AppMessages],
-        [.. shell.Messages, .. panels.Messages],
-        new UiIntent(
-            shell.Intent.WantCaptureMouse || panels.Intent.WantCaptureMouse,
-            shell.Intent.WantCaptureKeyboard || panels.Intent.WantCaptureKeyboard));
 
     void ApplyViewMessages(UiViewResult view, UiModel uiBeforeFrameInputs)
     {
@@ -432,10 +369,8 @@ public sealed class Application : IDisposable
     }
 
     /// <summary>
-    /// Single dispatch point for app-shell messages. Used by both the
-    /// scene-consuming branch (folded out of <see cref="UiView"/>) and the
-    /// scene-less branch (the bare menu bar). Side-effecting messages run
-    /// here; pure ones flow through to the reducer.
+    /// Single dispatch point for app-shell messages. Side-effecting messages
+    /// run here; pure ones flow through to the reducer.
     /// </summary>
     void ApplyAppMessage(AppUiMsg msg, List<UiMsg>? followUp = null)
     {
@@ -1277,52 +1212,12 @@ public sealed class Application : IDisposable
         pipeline.RecreateTransient(gpu);
     }
 
-    static ImGuiKey SilkKeyToImGui(Key key) => key switch
-    {
-        Key.Tab           => ImGuiKey.Tab,
-        Key.Left          => ImGuiKey.LeftArrow,
-        Key.Right         => ImGuiKey.RightArrow,
-        Key.Up            => ImGuiKey.UpArrow,
-        Key.Down          => ImGuiKey.DownArrow,
-        Key.PageUp        => ImGuiKey.PageUp,
-        Key.PageDown      => ImGuiKey.PageDown,
-        Key.Home          => ImGuiKey.Home,
-        Key.End           => ImGuiKey.End,
-        Key.Insert        => ImGuiKey.Insert,
-        Key.Delete        => ImGuiKey.Delete,
-        Key.Backspace     => ImGuiKey.Backspace,
-        Key.Space         => ImGuiKey.Space,
-        Key.Enter         => ImGuiKey.Enter,
-        Key.Escape        => ImGuiKey.Escape,
-        Key.ControlLeft   => ImGuiKey.LeftCtrl,
-        Key.ControlRight  => ImGuiKey.RightCtrl,
-        Key.ShiftLeft     => ImGuiKey.LeftShift,
-        Key.ShiftRight    => ImGuiKey.RightShift,
-        Key.AltLeft       => ImGuiKey.LeftAlt,
-        Key.AltRight      => ImGuiKey.RightAlt,
-        Key.SuperLeft     => ImGuiKey.LeftSuper,
-        Key.SuperRight    => ImGuiKey.RightSuper,
-        Key.A => ImGuiKey.A, Key.B => ImGuiKey.B, Key.C => ImGuiKey.C, Key.D => ImGuiKey.D,
-        Key.E => ImGuiKey.E, Key.F => ImGuiKey.F, Key.G => ImGuiKey.G, Key.H => ImGuiKey.H,
-        Key.I => ImGuiKey.I, Key.J => ImGuiKey.J, Key.K => ImGuiKey.K, Key.L => ImGuiKey.L,
-        Key.M => ImGuiKey.M, Key.N => ImGuiKey.N, Key.O => ImGuiKey.O, Key.P => ImGuiKey.P,
-        Key.Q => ImGuiKey.Q, Key.R => ImGuiKey.R, Key.S => ImGuiKey.S, Key.T => ImGuiKey.T,
-        Key.U => ImGuiKey.U, Key.V => ImGuiKey.V, Key.W => ImGuiKey.W, Key.X => ImGuiKey.X,
-        Key.Y => ImGuiKey.Y, Key.Z => ImGuiKey.Z,
-        Key.F1 => ImGuiKey.F1, Key.F2 => ImGuiKey.F2, Key.F3 => ImGuiKey.F3,
-        Key.F4 => ImGuiKey.F4, Key.F5 => ImGuiKey.F5, Key.F6 => ImGuiKey.F6,
-        Key.F7 => ImGuiKey.F7, Key.F8 => ImGuiKey.F8, Key.F9 => ImGuiKey.F9,
-        Key.F10 => ImGuiKey.F10, Key.F11 => ImGuiKey.F11, Key.F12 => ImGuiKey.F12,
-        _ => ImGuiKey.None,
-    };
-
     public unsafe void Dispose()
     {
         if (gpu is null) { window?.Dispose(); return; }
         vk.DeviceWaitIdle(gpu.Device);
         hotReload?.Dispose();
         pipeline?.Dispose();
-        imgui?.Dispose();
         ptah?.Dispose();
         if (overlayFramebuffers.Length > 0)
             VulkanPipeline.DestroyFramebuffers(gpu, overlayFramebuffers);

@@ -90,21 +90,18 @@ public sealed class PtahUi : IDisposable
     /// </summary>
     /// <param name="width">The client area's width in logical pixels.</param>
     /// <param name="height">Its height.</param>
-    /// <param name="top">
-    /// Where the shell's own region starts, measured down from the top of that client area. It is
-    /// not zero while Dear ImGui still owns the main menu bar: two layouts drawn over each other
-    /// have to agree about where the workspace begins, or every column in one is offset from its
-    /// counterpart in the other. It goes to zero with the menu bar.
-    /// </param>
     /// <param name="dt">Seconds since the last frame.</param>
     /// <param name="build">Builds the interface and reports what it wants.</param>
-    public UiViewResult Frame(int width, int height, float top, float dt,
+    public UiViewResult Frame(int width, int height, float dt,
         Func<UIContext, UiViewResult> build)
     {
         _width = Math.Max(1, width);
         _height = Math.Max(1, height);
 
-        _ui.BeginBuild(dt, new Rect(0f, top, _width, _height), _input.Snapshot());
+        // The whole client area. It used to start below Dear ImGui's menu bar, because two
+        // layouts drawn over each other had to agree about where the workspace began; there is
+        // one layout now, and it owns its own top strip.
+        _ui.BeginBuild(dt, new Rect(0f, 0f, _width, _height), _input.Snapshot());
         UiViewResult result = build(_ui);
         _ui.EndBuild();
 

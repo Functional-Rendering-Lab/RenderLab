@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using Ptah;
 using RenderLab.Assets;
+using RenderLab.Graph;
 using RenderLab.Project;
 using RenderLab.Scene;
 using RenderLab.Ui;
@@ -85,11 +86,33 @@ public class EditorFrameTests
         return new ProjectAssetIndex(@"C:\proj", root, new DateTime(2026, 8, 31, 9, 0, 0, DateTimeKind.Utc));
     }
 
+    /// <summary>
+    /// Two passes with a barrier between them, which is the smallest thing that is a graph: one
+    /// writes what the other reads, and the compiler had to notice.
+    /// </summary>
+    private static ImmutableArray<ResolvedPass> Passes()
+    {
+        ResourceName albedo = ResourceName.Of("gAlbedo");
+
+        var gbuffer = new RenderPassDeclaration(
+            "GBuffer", [], [new PassOutput(albedo, ResourceUsage.ColorAttachmentWrite)]);
+
+        var lighting = new RenderPassDeclaration(
+            "Lighting", [new PassInput(albedo, ResourceUsage.ShaderRead)], []);
+
+        return
+        [
+            new ResolvedPass(gbuffer, []),
+            new ResolvedPass(lighting,
+                [new BarrierDesc(albedo, ResourceUsage.ColorAttachmentWrite, ResourceUsage.ShaderRead)]),
+        ];
+    }
+
     private static readonly FrameStats Stats = new(
         DeltaSeconds: 1f / 60f,
         TimestampLabels: ["GBuffer"],
         TimestampMillis: [0.42d],
-        ResolvedPasses: []);
+        ResolvedPasses: Passes());
 
     // ---- Driving one -------------------------------------------------------------
 
@@ -113,10 +136,21 @@ public class EditorFrameTests
         internal AssetLibrary Library = EditorFrameTests.Library();
         internal ProjectAssetIndex Project = EditorFrameTests.Project();
 
+        /// <summary>
+        /// What the hosting pipeline can resolve to the screen, which is what the Visualization
+        /// panel offers. All of them here, because a test that could not reach a mode would be
+        /// testing the fixture.
+        /// </summary>
+        internal ImmutableArray<VisualizationMode> Visualizations =
+            [.. Enum.GetValues<VisualizationMode>()];
+
+        internal FrameStats Stats = EditorFrameTests.Stats;
+
         internal UiViewResult Step(UIInput input)
         {
             Ui.BeginBuild(1f / 60f, new Rect(0f, 0f, 1600f, 900f), input);
-            UiViewResult result = _view.Draw(Ui, App, Model, _catalog, Library, Project, Stats, default);
+            UiViewResult result = _view.Draw(Ui, App, Model, _catalog, Library, Project,
+                Visualizations, Stats, default);
             Ui.EndBuild();
             return result;
         }
@@ -139,6 +173,13 @@ public class EditorFrameTests
             Step(new UIInput { MousePosition = at, MouseDown = true, MousePressed = true });
             return Step(new UIInput { MousePosition = at, MouseReleased = true });
         }
+
+        /// <summary>
+        /// The pointer resting on something, pressing nothing. It is a gesture in its own right
+        /// once a menu is open: a branch opens because the pointer stopped on its parent.
+        /// </summary>
+        internal UiViewResult Hover(string label) =>
+            Step(new UIInput { MousePosition = Box(label).Rect.Center });
 
         /// <summary>The second mouse button, which is what opens a context menu.</summary>
         internal UiViewResult RightClick(string label)
@@ -196,6 +237,126 @@ public class EditorFrameTests
             foreach (UIBox nested in Walk(child))
                 yield return nested;
         }
+    }
+
+
+    // ---- The menu bar ------------------------------------------------------------
+    //
+    // The last interface Dear ImGui was drawing, and the one place in the editor where what a
+    // control means is a string rather than a call. That is exactly the thing a frame cannot be
+    // read for: an entry that dispatches the wrong message looks like one that dispatches the
+    // right one until somebody picks it.
+
+    private static Driver WithProject(Driver driver, string active, params string[] scenes)
+    {
+        driver.App = driver.App.WithProject("demo", active, [.. scenes]);
+        return driver;
+    }
+
+    [Fact]
+    public void TheMenuBarPicksUpWhatAnEntryMeans()
+    {
+        var driver = new Driver();
+        driver.Settle();
+
+        driver.Click("File");
+        UiViewResult result = driver.Click("Exit");
+
+        Assert.Contains(result.AppMessages, msg => msg is AppUiMsg.RequestExit);
+    }
+
+    [Fact]
+    public void OpeningASceneCarriesThePathTheSubmenuNamed()
+    {
+        Driver driver = WithProject(new Driver(), "scenes/one.scene", "scenes/one.scene", "scenes/two.scene");
+        driver.Settle();
+
+        driver.Click("File");
+        driver.Hover("Open Scene");
+
+        // The submenu is the project's scenes, and the one already open is ticked.
+        Assert.True(driver.Shows("scenes/two.scene"));
+
+        UiViewResult result = driver.Click("scenes/two.scene");
+
+        AppUiMsg.RequestOpenScene opened = Assert.IsType<AppUiMsg.RequestOpenScene>(
+            Assert.Single(result.AppMessages));
+        Assert.Equal("scenes/two.scene", opened.ProjectRelative);
+    }
+
+    [Fact]
+    public void TheViewMenuAsksForTheOppositeOfWhatItsTickSays()
+    {
+        var driver = new Driver();
+        driver.Settle();
+
+        driver.Click("View");
+        UiViewResult result = driver.Click("Scene");
+
+        AppUiMsg.SetPanelVisible set = Assert.IsType<AppUiMsg.SetPanelVisible>(
+            Assert.Single(result.AppMessages));
+        Assert.Equal(PanelId.Scene, set.Id);
+        Assert.False(set.Visible);
+    }
+
+    [Fact]
+    public void WithNoSceneOpenTheEntriesThatNeedOneDoNothing()
+    {
+        var driver = new Driver();
+        driver.Settle();
+
+        driver.Click("File");
+        UiViewResult result = driver.Click("Reload Scene");
+
+        // It is drawn, and it is inert. A menu whose lines come and go is one nobody can learn
+        // the shape of, so a line that cannot be used stays where it is and answers nothing.
+        Assert.True(driver.Shows("Reload Scene"));
+        Assert.Empty(result.AppMessages);
+        Assert.Empty(result.Messages);
+    }
+
+    [Fact]
+    public void ASavedSceneNamesItsFileAndSaysWhenItIsDirty()
+    {
+        Driver driver = WithProject(new Driver(), "scenes/one.scene", "scenes/one.scene");
+        driver.Settle();
+        driver.Click("File");
+        Assert.True(driver.Shows("Save Scene (scenes/one.scene)"));
+
+        driver.App = driver.App with { SceneDirty = true };
+        driver.Step(default);
+
+        Assert.True(driver.Shows("Save Scene (scenes/one.scene)*"));
+    }
+
+    // ---- The Render Graph panel --------------------------------------------------
+
+    [Fact]
+    public void TheRenderGraphNamesEachPassInOrderWithWhatItReadsAndWrites()
+    {
+        var driver = new Driver().Only(PanelId.RenderGraph);
+        driver.Settle();
+
+        // The index is in the label because the order is the whole output of a graph compiler.
+        Assert.True(driver.Shows("0: GBuffer"));
+        Assert.True(driver.Shows("1: Lighting"));
+
+        Assert.True(driver.Shows("gAlbedo (ColorAttachmentWrite)"));
+        Assert.True(driver.Shows("gAlbedo (ShaderRead)"));
+
+        // And the barrier the compiler inserted between the two, which is the part of a render
+        // graph that is worth having a panel for.
+        Assert.True(driver.Shows("gAlbedo ColorAttachmentWrite -> ShaderRead"));
+    }
+
+    [Fact]
+    public void APipelineWithNoGraphSaysSoRatherThanDrawingAnEmptyPanel()
+    {
+        var driver = new Driver().Only(PanelId.RenderGraph);
+        driver.Stats = Stats with { ResolvedPasses = [] };
+        driver.Settle();
+
+        Assert.True(driver.Shows("No graph. This pipeline records its passes by hand."));
     }
 
     // ---- Every branch of the Inspector -------------------------------------------

@@ -53,7 +53,7 @@ public sealed class EditorView
 
     public UiViewResult Draw(UIContext ui, AppUiModel app, UiModel model,
         IAssetCatalog catalog, AssetLibrary library, ProjectAssetIndex project,
-        FrameStats stats, UiCost cost)
+        ImmutableArray<VisualizationMode> visualizations, FrameStats stats, UiCost cost)
     {
         int layout = EditorLayout.LayoutMask(app);
         if (layout != _layout)
@@ -68,16 +68,31 @@ public sealed class EditorView
 
         var w = new WidgetKit(ui, _theme);
 
-        // Transparent chrome, because this is composited over a frame the renderer has already
-        // drawn: a hole in a leaf shows nothing through if the split above it is painting over
-        // the same rectangle.
-        // Close and nothing else on a header: this layout is authored in code, and a split made
-        // with the mouse would have nowhere to be authored back to.
-        w.PanelArea(_tree, EditorLayout.TitleOf, BuildLeaf,
-                Optional.Some<Func<ViewId, bool>>(EditorLayout.IsHole),
-                Optional.Some(Color.Transparent),
-                Optional.Some(PanelHeaderButtons.Close))
-            .IfSome(Requested);
+        // The bar owns the top strip and the panel area takes what is left, which is why the
+        // shell is given the whole client area now: the `top` offset the frame used to be handed
+        // existed only so two layouts drawn over each other agreed about where the workspace
+        // began, and there is one layout again.
+        //
+        // It paints nothing. Everything in here that is meant to be seen paints itself - the bar
+        // its chrome, a panel its surface - and the one region that must stay clear is the
+        // viewport, which the renderer has already drawn into by the time the shell records. A
+        // background on this box is a background over the scene.
+        using (w.Panel("shell", Color.Transparent, UISize.Percent(1f), UISize.Percent(1f), Axis2.Y))
+        {
+            EditorMenuBar.Draw(w, _widgets, app, appMessages.Add);
+            w.Separator();
+
+            // Transparent chrome, because this is composited over a frame the renderer has
+            // already drawn: a hole in a leaf shows nothing through if the split above it is
+            // painting over the same rectangle.
+            // Close and nothing else on a header: this layout is authored in code, and a split
+            // made with the mouse would have nowhere to be authored back to.
+            w.PanelArea(_tree, EditorLayout.TitleOf, BuildLeaf,
+                    Optional.Some<Func<ViewId, bool>>(EditorLayout.IsHole),
+                    Optional.Some(Color.Transparent),
+                    Optional.Some(PanelHeaderButtons.Close))
+                .IfSome(Requested);
+        }
 
         // Beside the panel area rather than inside it. A modal dims the whole window and takes
         // the mouse and the keyboard from everything behind it, which includes the panel that
@@ -119,7 +134,8 @@ public sealed class EditorView
                         GpuTimingsPanel.Draw(w, stats, cost);
                         break;
                     case PanelId.Visualization:
-                        VisualizationPanel.Draw(w, _widgets, model.Viz, messages.Add);
+                        VisualizationPanel.Draw(w, _widgets, model.Viz, visualizations,
+                            messages.Add);
                         break;
                     case PanelId.Lighting:
                         LightingPanel.Draw(w, _widgets, model, messages.Add);
@@ -137,6 +153,9 @@ public sealed class EditorView
                         break;
                     case PanelId.Project:
                         ProjectPanel.Draw(w, _widgets, project, appMessages.Add);
+                        break;
+                    case PanelId.RenderGraph:
+                        RenderGraphPanel.Draw(w, _widgets, stats.ResolvedPasses);
                         break;
                 }
             }

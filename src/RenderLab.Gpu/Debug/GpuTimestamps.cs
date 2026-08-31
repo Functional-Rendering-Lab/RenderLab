@@ -1,11 +1,16 @@
-using RenderLab.Gpu;
 using Silk.NET.Vulkan;
 
-namespace RenderLab.Ui.ImGui;
+namespace RenderLab.Gpu.Debug;
 
 /// <summary>
 /// Records GPU-side timestamp queries to measure per-pass execution time.
 /// Each pass gets a begin/end timestamp pair; results are read back the following frame.
+/// <para>
+/// It is here rather than beside the panel that shows its numbers because none of it is about a
+/// panel: it is a query pool, a command buffer, and a device's timestamp period.
+/// <see cref="DeviceCapabilities"/> has named it <c>Debug.GpuTimestamps</c> since before it was
+/// true - a cref that could not resolve while this file was a UI framework's.
+/// </para>
 /// </summary>
 public sealed class GpuTimestamps : IDisposable
 {
