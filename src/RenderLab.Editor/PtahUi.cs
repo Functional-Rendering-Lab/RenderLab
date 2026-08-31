@@ -63,11 +63,20 @@ public sealed class PtahUi : IDisposable
     /// <paramref name="overlayPass"/> is the pass the interface is recorded into, and its
     /// single subpass is composited over an already-resolved swapchain image - which is why the
     /// backend's subpass index and sample count are left at their defaults here.
+    /// <para>
+    /// Its color space is not left at a default, and cannot be. This swapchain is
+    /// <c>B8G8R8A8Srgb</c>, because a renderer that lights a scene in linear space wants the
+    /// hardware to encode on the way out; that same encode is applied to the interface recorded
+    /// over the top, so the backend is told to hand over linear values rather than the bytes
+    /// <see cref="EditorTheme"/> names. Told wrong, every color in the editor arrives lifted -
+    /// <c>0x0A0A0A</c> chrome as <c>0x383838</c>.
+    /// </para>
     /// </summary>
     public static Result<PtahUi, PtahStartupError> Create(
         GpuState gpu, RenderPass overlayPass, IInputContext input) =>
         FontAtlas.Default(EditorTheme.FontSize).Bind(font =>
-            VulkanDrawTarget.Create(Context(gpu), font, overlayPass)
+            VulkanDrawTarget.Create(Context(gpu), font, overlayPass,
+                    VulkanDrawTarget.ColorSpaceOf(gpu.SwapchainFormat))
                 .Map(target => new PtahUi(gpu, overlayPass, font, target, input)));
 
     /// <summary>
