@@ -346,7 +346,7 @@ public class EditorFrameTests
 
         // And the barrier the compiler inserted between the two, which is the part of a render
         // graph that is worth having a panel for.
-        Assert.True(driver.Shows("gAlbedo ColorAttachmentWrite -> ShaderRead"));
+        Assert.True(driver.Shows("gAlbedo ColorAttachmentWrite → ShaderRead"));
     }
 
     [Fact]

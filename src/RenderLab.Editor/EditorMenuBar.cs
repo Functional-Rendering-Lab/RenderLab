@@ -43,8 +43,8 @@ internal static class EditorMenuBar
         // mark. The same rule the Inspector's headings were ported under.
         return
         [
-            new MenuEntry("New Project...", "project.new"),
-            new MenuEntry("Open Project...", "project.open"),
+            new MenuEntry("New Project…", "project.new"),
+            new MenuEntry("Open Project…", "project.open"),
             MenuEntry.Separator,
             new MenuEntry("Open Scene", "scene.open")
             {
@@ -54,9 +54,9 @@ internal static class EditorMenuBar
             new MenuEntry("Reload Scene", "scene.reload") { Enabled = hasScene },
             MenuEntry.Separator,
             new MenuEntry(SaveLabel(app), "scene.save") { Enabled = hasScene },
-            new MenuEntry("Save Scene As...", "scene.saveas") { Enabled = hasScene },
+            new MenuEntry("Save Scene As…", "scene.saveas") { Enabled = hasScene },
             MenuEntry.Separator,
-            new MenuEntry("Import glTF...", "gltf.import"),
+            new MenuEntry("Import glTF…", "gltf.import"),
             MenuEntry.Separator,
 
             // The one shortcut printed here that the tool actually has, because the window

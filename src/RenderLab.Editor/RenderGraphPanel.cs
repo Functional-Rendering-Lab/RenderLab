@@ -59,7 +59,7 @@ internal static class RenderGraphPanel
                     w.SectionLabel("BARRIERS");
                     foreach (BarrierDesc barrier in pass.BarriersBefore)
                         w.DataRow($"bar_{decl.Name}_{barrier.Resource.Name}",
-                            $"{barrier.Resource.Name} {barrier.FromUsage} -> {barrier.ToUsage}");
+                            $"{barrier.Resource.Name} {barrier.FromUsage} → {barrier.ToUsage}");
                 }
             }
         }

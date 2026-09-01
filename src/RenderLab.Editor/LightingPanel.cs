@@ -14,15 +14,15 @@ internal static class LightingPanel
 {
     /// <summary>
     /// The three BRDFs, in the order <see cref="ShadingMode"/> declares them. Written out rather
-    /// than taken from the enum's names because "Blinn-Phong (N.H)" says which dot product is
+    /// than taken from the enum's names because "Blinn-Phong (N·H)" says which dot product is
     /// being taken and <c>BlinnPhong</c> does not, and that is the entire question this control
     /// asks.
     /// </summary>
     private static readonly string[] ShadingModes =
     [
         "Lambertian (diffuse)",
-        "Phong (R.V)",
-        "Blinn-Phong (N.H)",
+        "Phong (R·V)",
+        "Blinn-Phong (N·H)",
     ];
 
     internal static void Draw(WidgetKit w, WidgetState state, UiModel model, Action<UiMsg> dispatch)
