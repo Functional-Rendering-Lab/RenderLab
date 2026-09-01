@@ -67,14 +67,26 @@ public sealed class PtahUi : IDisposable
     /// Its color space is not left at a default, and cannot be. This swapchain is
     /// <c>B8G8R8A8Srgb</c>, because a renderer that lights a scene in linear space wants the
     /// hardware to encode on the way out; that same encode is applied to the interface recorded
-    /// over the top, so the backend is told to hand over linear values rather than the bytes
-    /// <see cref="EditorTheme"/> names. Told wrong, every color in the editor arrives lifted -
-    /// <c>0x0A0A0A</c> chrome as <c>0x383838</c>.
+    /// over the top, so the backend is told to hand over linear values rather than the bytes the
+    /// theme names. Told wrong, every color in the editor arrives lifted, and a dark theme's
+    /// chrome reaches the screen as a mid grey.
     /// </para>
     /// </summary>
+    /// <param name="displayScale">
+    /// Physical pixels per logical pixel on the monitor the window came up on. The atlas is
+    /// rasterized that much larger while still reporting logical metrics, so text is sharp on a
+    /// high-DPI screen instead of being baked at logical size and stretched by the backend.
+    /// <c>PtahHost</c> does this from the window's content scale; an embedder has to do it
+    /// itself, and not doing it is why the editor's glyphs were soft at 150%.
+    /// <para>
+    /// It is read once. Dragging the window to a monitor with a different scale leaves the atlas
+    /// baked for the old one until the editor restarts - the same trade the swapchain makes, and
+    /// the thing to revisit if this tool ever moves between panels mid-session.
+    /// </para>
+    /// </param>
     public static Result<PtahUi, PtahStartupError> Create(
-        GpuState gpu, RenderPass overlayPass, IInputContext input) =>
-        FontAtlas.Default(EditorTheme.FontSize).Bind(font =>
+        GpuState gpu, RenderPass overlayPass, IInputContext input, float displayScale) =>
+        FontAtlas.Default(EditorTheme.FontSize, displayScale).Bind(font =>
             VulkanDrawTarget.Create(Context(gpu), font, overlayPass,
                     VulkanDrawTarget.ColorSpaceOf(gpu.SwapchainFormat))
                 .Map(target => new PtahUi(gpu, overlayPass, font, target, input)));

@@ -300,6 +300,43 @@ public class EditorFrameTests
     }
 
     [Fact]
+    public void TheViewMenuAsksForTheThemeItIsNotWearing()
+    {
+        var driver = new Driver();
+        driver.Settle();
+
+        driver.Click("View");
+        UiViewResult result = driver.Click("Neutral Theme");
+
+        Assert.IsType<AppUiMsg.ToggleTheme>(Assert.Single(result.AppMessages));
+    }
+
+    /// <summary>
+    /// The other half of the toggle, and the half a dispatch test cannot see: the message only
+    /// means something if the next frame is actually built in the palette it asked for. Nothing
+    /// in the shell holds a theme, so this is the whole of the change - the model names one and
+    /// every fill in the frame comes from it.
+    /// </summary>
+    [Fact]
+    public void AFrameIsPaintedInTheThemeTheModelNames()
+    {
+        var driver = new Driver();
+        driver.Settle();
+
+        Assert.Contains(Theme.Warm.Surface, Fills(driver));
+
+        driver.App = driver.App.WithThemeToggled();
+        driver.Settle();
+
+        Assert.Contains(Theme.Neutral.Surface, Fills(driver));
+        Assert.DoesNotContain(Theme.Warm.Surface, Fills(driver));
+    }
+
+    /// <summary>Every fill in the frame, whatever layer it was drawn on.</summary>
+    private static IEnumerable<Color> Fills(Driver driver) =>
+        driver.Boxes().Select(box => box.BackgroundColors.TopLeft);
+
+    [Fact]
     public void WithNoSceneOpenTheEntriesThatNeedOneDoNothing()
     {
         var driver = new Driver();

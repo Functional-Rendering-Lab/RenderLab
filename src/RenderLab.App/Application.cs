@@ -74,7 +74,7 @@ public sealed class Application : IDisposable
     {
         var settings = EditorSettingsIO.ReadOrDefault();
 
-        var firstLoad = LoadProject(projectPath, restorePanels: settings);
+        var firstLoad = LoadProject(projectPath, restore: settings);
         if (firstLoad.IsError)
         {
             Console.Error.WriteLine(firstLoad.Match<string>(_ => null!, e => e));
@@ -103,8 +103,13 @@ public sealed class Application : IDisposable
     /// switching), reads the manifest, instantiates the new pipeline, and —
     /// if the pipeline consumes scenes — opens the default scene. Used both
     /// by <see cref="Run"/> and by the <c>Open Project</c> menu item.
+    /// <para>
+    /// <paramref name="restore"/> is the per-user preferences a launch starts from and a project
+    /// switch does not: which panels were hidden and which theme was on, both of them the user's
+    /// and neither of them the project's.
+    /// </para>
     /// </summary>
-    Result<Unit, string> LoadProject(string projectPath, EditorSettings? restorePanels = null)
+    Result<Unit, string> LoadProject(string projectPath, EditorSettings? restore = null)
     {
         var newRoot = Path.GetFullPath(projectPath);
 
@@ -165,14 +170,20 @@ public sealed class Application : IDisposable
                 : ImmutableArray.Create(manifest.DefaultScene));
         app = app.WithProject(manifest.Name, "", availableScenes);
 
-        if (restorePanels is not null)
+        if (restore is not null)
         {
             var hidden = ImmutableHashSet.CreateRange(
-                restorePanels.HiddenPanels
+                restore.HiddenPanels
                     .Where(name => Enum.TryParse<PanelId>(name, out _))
                     .Select(Enum.Parse<PanelId>));
             var visible = ImmutableHashSet.CreateRange(Enum.GetValues<PanelId>().Where(p => !hidden.Contains(p)));
             app = app with { VisiblePanels = visible };
+
+            // A settings file written before the theme could be switched has no name in it, and
+            // TryParse says so rather than throwing - so an old file, an empty string and a theme
+            // that has since been renamed all land on the model's own default.
+            if (Enum.TryParse(restore.Theme, out UiTheme theme))
+                app = app with { Theme = theme };
         }
 
         projectIndex = ProjectAssetScanner.Scan(projectRoot);
@@ -240,7 +251,13 @@ public sealed class Application : IDisposable
         resolver = new SceneAssetResolver(assets);
         overlayRenderPass = VulkanPipeline.CreateOverlayRenderPass(gpu);
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
-        ptah = PtahUi.Create(gpu, overlayRenderPass, window.Input).Match(
+        // Physical over logical: the swapchain is sized in the monitor's real pixels while the
+        // shell is built in logical ones, so their ratio is the scale the atlas has to bake at.
+        float displayScale = window.Width > 0
+            ? gpu.SwapchainExtent.Width / (float)window.Width
+            : 1f;
+
+        ptah = PtahUi.Create(gpu, overlayRenderPass, window.Input, displayScale).Match(
             ok: shell => shell,
             error: failure => throw new InvalidOperationException(
                 $"Failed to create the Ptah UI shell: {failure}"));
@@ -1197,7 +1214,8 @@ public sealed class Application : IDisposable
             Version: 1,
             LastProjectPath: projectRoot,
             LastScenePath: activeScenePath,
-            HiddenPanels: hidden));
+            HiddenPanels: hidden,
+            Theme: app.Theme.ToString()));
     }
 
     void RecreateSwapchainResources()

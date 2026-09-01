@@ -12,15 +12,23 @@ namespace RenderLab.Project;
 /// <param name="LastProjectPath">Absolute path of the most recently opened project. Empty on a clean install.</param>
 /// <param name="LastScenePath">Project-relative scene path active when the editor closed. Empty for non-scene pipelines.</param>
 /// <param name="HiddenPanels">Names of <c>PanelId</c> values the user toggled off — every other panel defaults to visible.</param>
+/// <param name="Theme">
+/// Name of the <c>UiTheme</c> the shell was wearing. A name rather than the value for the reason
+/// <paramref name="HiddenPanels"/> is: this assembly holds the file format and not the editor's
+/// vocabulary. Empty - which is what a file written before the theme could be switched says -
+/// means whichever theme the model defaults to.
+/// </param>
 public sealed record EditorSettings(
     int Version,
     string LastProjectPath,
     string LastScenePath,
-    string[] HiddenPanels)
+    string[] HiddenPanels,
+    string Theme)
 {
     public static EditorSettings Default { get; } = new(
         Version: 1,
         LastProjectPath: "",
         LastScenePath: "",
-        HiddenPanels: []);
+        HiddenPanels: [],
+        Theme: "");
 }

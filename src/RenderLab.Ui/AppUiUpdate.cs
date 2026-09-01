@@ -13,6 +13,7 @@ public static class AppUiUpdate
         AppUiMsg.RequestExit             => model with { RequestedExit = true },
         AppUiMsg.TogglePanel m           => model.WithPanelVisible(m.Id, !model.IsPanelVisible(m.Id)),
         AppUiMsg.SetPanelVisible m       => model.WithPanelVisible(m.Id, m.Visible),
+        AppUiMsg.ToggleTheme             => model.WithThemeToggled(),
         AppUiMsg.RequestImportGltf       => model,
         AppUiMsg.RequestImportGltfDialog => model,
         AppUiMsg.RequestRemoveMesh       => model,

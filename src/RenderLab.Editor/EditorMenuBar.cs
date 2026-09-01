@@ -27,6 +27,9 @@ internal static class EditorMenuBar
     /// <summary>The entry that shows or hides a panel. What follows the space is the panel.</summary>
     private const string ShowPanel = "panel.show ";
 
+    /// <summary>The entry that swaps the shell between Ptah's two stock palettes.</summary>
+    private const string ToggleTheme = "theme.toggle";
+
     internal static void Draw(WidgetKit w, WidgetState state, AppUiModel app,
         Action<AppUiMsg> dispatch) =>
         w.MenuBar(Menus(app), state.Menus).IfSome(id => Dispatch(id, app, dispatch));
@@ -98,6 +101,13 @@ internal static class EditorMenuBar
         {
             Checked = app.IsPanelVisible(id),
         }),
+        MenuEntry.Separator,
+
+        // Named for the state rather than for the flip, now that a tick can say which one you
+        // are in: "Toggle Theme" could never tell you what you were about to get. It sits under
+        // the panels because it is the same kind of line - a view preference the menu ticks -
+        // and behind the same rule: picking it asks for the opposite of what its tick says.
+        new MenuEntry("Neutral Theme", ToggleTheme) { Checked = app.Theme == UiTheme.Neutral },
     ];
 
     /// <summary>
@@ -130,6 +140,7 @@ internal static class EditorMenuBar
             case "scene.saveas": dispatch(new AppUiMsg.RequestSaveSceneAs()); break;
             case "gltf.import": dispatch(new AppUiMsg.RequestImportGltfDialog()); break;
             case "app.exit": dispatch(new AppUiMsg.RequestExit()); break;
+            case ToggleTheme: dispatch(new AppUiMsg.ToggleTheme()); break;
         }
     }
 }

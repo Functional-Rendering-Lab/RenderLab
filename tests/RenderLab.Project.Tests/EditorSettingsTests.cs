@@ -12,7 +12,8 @@ public class EditorSettingsTests
             Version: 1,
             LastProjectPath: @"C:\repos\my-project",
             LastScenePath: "scenes/main.scene.json",
-            HiddenPanels: ["GpuTimings", "RenderGraph"]);
+            HiddenPanels: ["GpuTimings", "RenderGraph"],
+            Theme: "Neutral");
 
         var bytes = JsonSerializer.SerializeToUtf8Bytes(original, new JsonSerializerOptions
         {
@@ -28,6 +29,31 @@ public class EditorSettingsTests
         Assert.Equal(original.LastProjectPath, roundTripped.LastProjectPath);
         Assert.Equal(original.LastScenePath, roundTripped.LastScenePath);
         Assert.Equal(original.HiddenPanels, roundTripped.HiddenPanels);
+        Assert.Equal(original.Theme, roundTripped.Theme);
+    }
+
+    [Fact]
+    public void Settings_written_before_the_theme_existed_still_load()
+    {
+        // The file on a user's disk today has no theme in it, and a launch that threw over that
+        // would be a launch broken by a preference. The absent name reads as no preference.
+        const string legacy = """
+            {
+              "version": 1,
+              "lastProjectPath": "D:/repos/my-project",
+              "lastScenePath": "scenes/main.scene.json",
+              "hiddenPanels": ["GpuTimings"]
+            }
+            """;
+
+        var settings = JsonSerializer.Deserialize<EditorSettings>(legacy, new JsonSerializerOptions
+        {
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        });
+
+        Assert.NotNull(settings);
+        Assert.Equal(["GpuTimings"], settings!.HiddenPanels);
+        Assert.True(string.IsNullOrEmpty(settings.Theme));
     }
 
     [Fact]
@@ -48,5 +74,6 @@ public class EditorSettingsTests
         Assert.Equal("", d.LastProjectPath);
         Assert.Equal("", d.LastScenePath);
         Assert.Empty(d.HiddenPanels);
+        Assert.Equal("", d.Theme);
     }
 }

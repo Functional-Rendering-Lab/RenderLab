@@ -10,6 +10,13 @@ public abstract record AppUiMsg
 {
     public sealed record TogglePanel(PanelId Id) : AppUiMsg;
     public sealed record SetPanelVisible(PanelId Id, bool Visible) : AppUiMsg;
+
+    /// <summary>
+    /// Wear the other palette. The editor has no theme of its own: it picks between Ptah's two
+    /// stock themes, so this carries no colour and names no side. Which one is showing lives in
+    /// <see cref="AppUiModel.Theme"/>, and the view resolves it to a palette when it builds.
+    /// </summary>
+    public sealed record ToggleTheme : AppUiMsg;
     public sealed record RequestExit : AppUiMsg;
     /// <summary>One-shot import trigger (registry side-effect). The reducer
     /// passes through; the shell calls <c>AssetRegistry.ImportGltf</c> and

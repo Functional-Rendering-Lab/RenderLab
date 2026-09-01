@@ -33,6 +33,28 @@ public class AppUiUpdateTests
     }
 
     [Fact]
+    public void ToggleTheme_swapsBetweenTheTwoStockThemes()
+    {
+        var start = Fresh();
+        Assert.Equal(UiTheme.Warm, start.Theme);
+
+        var neutral = AppUiUpdate.Apply(start, new AppUiMsg.ToggleTheme());
+        Assert.Equal(UiTheme.Neutral, neutral.Theme);
+
+        var warm = AppUiUpdate.Apply(neutral, new AppUiMsg.ToggleTheme());
+        Assert.Equal(UiTheme.Warm, warm.Theme);
+    }
+
+    [Fact]
+    public void ToggleTheme_leavesEverythingElseAlone()
+    {
+        var start = AppUiUpdate.Apply(Fresh(), new AppUiMsg.SetPanelVisible(PanelId.Scene, false));
+        var next = AppUiUpdate.Apply(start, new AppUiMsg.ToggleTheme());
+
+        Assert.Equal(start with { Theme = next.Theme }, next);
+    }
+
+    [Fact]
     public void RequestRescanProject_isPassthrough()
     {
         var start = Fresh();

@@ -23,8 +23,6 @@ namespace RenderLab.Editor;
 /// </summary>
 public sealed class EditorView
 {
-    private readonly Theme _theme = EditorTheme.Dark;
-
     /// <summary>
     /// The boxes the layout left holes in, this frame. What the pointer is over is the whole of
     /// <see cref="UiIntent.WantCaptureMouse"/>, and a hole is the one region of the window the
@@ -66,7 +64,11 @@ public sealed class EditorView
         var messages = new List<UiMsg>();
         _holes.Clear();
 
-        var w = new WidgetKit(ui, _theme);
+        // The palette is read off the model each frame rather than held, so switching it is one
+        // more message the reducer folds and no state of the view's own. Everything below asks
+        // the kit for a role, so the whole of a theme change is this line resolving differently.
+        Theme theme = EditorTheme.Of(app.Theme);
+        var w = new WidgetKit(ui, theme);
 
         // The bar owns the top strip and the panel area takes what is left, which is why the
         // shell is given the whole client area now: the `top` offset the frame used to be handed
@@ -120,9 +122,9 @@ public sealed class EditorView
 
         void Body(PanelId id)
         {
-            using (w.Panel($"body_{id}", _theme.Surface,
+            using (w.Panel($"body_{id}", theme.Surface,
                 UISize.Percent(1f), UISize.Percent(1f), Axis2.Y,
-                padding: Sides.All(_theme.Pad), gap: _theme.Gap, clip: true))
+                padding: Sides.All(theme.Pad), gap: theme.Gap, clip: true))
             {
                 // A panel is a rectangle somebody can drag down to nothing, so every panel body
                 // scrolls rather than the ones somebody remembered to make scroll.
