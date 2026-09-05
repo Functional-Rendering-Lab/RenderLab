@@ -1,4 +1,4 @@
-# RenderLab — Product Requirement Document
+# RenderLab Product Requirement Document
 
 **Version:** 0.3
 **Author:** Andrés (TutanDev)
@@ -9,7 +9,9 @@
 
 ## 1. Purpose
 
-RenderLab is a personal rendering laboratory for implementing, testing, and validating graphics research papers. It is not a game engine, not an editor, and not a production renderer. Every architectural decision serves one goal: **minimize the time between reading a paper and seeing its results on screen.**
+RenderLab is a personal rendering laboratory for implementing, testing, and validating graphics research papers.
+It is not a game engine, not an editor, and not a production renderer.
+Every architectural decision serves one goal: **minimize the time between reading a paper and seeing its results on screen.**
 
 ---
 
@@ -18,8 +20,11 @@ RenderLab is a personal rendering laboratory for implementing, testing, and vali
 Implementing rendering papers today requires either:
 
 - **C++ engines (Falcor, The Forge, bgfx):** high friction, slow iteration, language hostility for the author.
-- **Unity/Unreal:** too much abstraction between you and the GPU. Pipeline state is hidden behind materials. No direct control over render graph topology, barrier placement, or resource aliasing.
-- **Raw Vulkan/OpenGL from scratch:** weeks of boilerplate before drawing a triangle. Ceremony-to-insight ratio is brutal.
+- **Unity/Unreal:** too much abstraction between you and the GPU.
+  Pipeline state is hidden behind materials.
+  No direct control over render graph topology, barrier placement, or resource aliasing.
+- **Raw Vulkan/OpenGL from scratch:** weeks of boilerplate before drawing a triangle.
+  Ceremony-to-insight ratio is brutal.
 - **Existing F#/FP renderers (Aardvark):** correct architectural intuition but locked to F# and their own incremental computation model.
 
 **Gap:** no lightweight, functional-core render testbed exists in modern C# that gives direct GPU control with minimal boilerplate.
@@ -41,10 +46,17 @@ Implementing rendering papers today requires either:
 
 ## 4. Non-Goals
 
-- **Production-quality renderer.** Performance matters for profiling papers, not for shipping games.
-- **Material *system*.** Papers define their own shaders and pipeline state directly. Material *assets* exist as a closed discriminated union (`BlinnPhongMaterial` today, more cases as papers need them) — they're parameter bundles the editor can edit, not a shader graph or permutation engine.
-- **General-purpose scene editor.** The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes). It is not a content-authoring tool — no gizmos beyond what inspection needs, no prefabs, no scene composition / nesting. The lab does ship its own **scene file format** (`*.scene.json`) inside a **Project** folder (see M6), which is the only serialization format it reads or writes; no other format is supported.
-- **Multi-GPU or ray tracing extensions.** Out of scope for v1.
+- **Production-quality renderer.**
+  Performance matters for profiling papers, not for shipping games.
+- **Material *system*.**
+  Papers define their own shaders and pipeline state directly.
+  Material *assets* exist as a closed discriminated union (`BlinnPhongMaterial` today, more cases as papers need them); they are parameter bundles the editor can edit, not a shader graph or permutation engine.
+- **General-purpose scene editor.**
+  The lab editor exists to drive the paper workflow (hot-reload shaders, tweak lights/materials/transforms live, import meshes).
+  It is not a content-authoring tool: no gizmos beyond what inspection needs, no prefabs, no scene composition / nesting.
+  The lab does ship its own **scene file format** (`*.scene.json`) inside a **Project** folder (see M6), which is the only serialization format it reads or writes; no other format is supported.
+- **Multi-GPU or ray tracing extensions.**
+  Out of scope for v1.
 
 ---
 
@@ -80,7 +92,8 @@ The architectural invariant is:
 This means:
 
 - Paper implementations receive immutable input (scene snapshot, camera, resources) and return immutable output (render commands, resource declarations).
-- The render graph compiler takes a set of passes and returns an ordered list of resolved passes with barriers. No mutation.
+- The render graph compiler takes a set of passes and returns an ordered list of resolved passes with barriers.
+  No mutation.
 - Only `Gpu.Submit()` translates commands into Vulkan API calls.
 
 ### 5.3 Data Flow Per Frame
@@ -110,25 +123,29 @@ Silk.NET Vulkan calls → GPU
 
 ### 6.1 Render Commands
 
-A closed set of GPU operations represented as a tagged value type (discriminated union via struct + tag byte). No heap allocation. Exhaustive matching enforced via `Match<T>(...)`.
+A closed set of GPU operations represented as a tagged value type (discriminated union via struct + tag byte).
+No heap allocation.
+Exhaustive matching enforced via `Match<T>(...)`.
 
 **Command types (v1):**
 
-- `ClearColor` — clear a color attachment
-- `ClearDepth` — clear a depth attachment
-- `SetPipeline` — bind a graphics or compute pipeline
-- `SetVertexBuffer` — bind vertex buffer at slot
-- `SetIndexBuffer` — bind index buffer
-- `SetDescriptorSet` — bind a descriptor set at index
-- `PushConstants` — upload push constant data
-- `DrawIndexed` — indexed draw call
-- `Dispatch` — compute dispatch
-- `CopyBufferToImage` — staging uploads
-- `Blit` — image-to-image copy with format conversion
+- `ClearColor`: clear a color attachment
+- `ClearDepth`: clear a depth attachment
+- `SetPipeline`: bind a graphics or compute pipeline
+- `SetVertexBuffer`: bind vertex buffer at slot
+- `SetIndexBuffer`: bind index buffer
+- `SetDescriptorSet`: bind a descriptor set at index
+- `PushConstants`: upload push constant data
+- `DrawIndexed`: indexed draw call
+- `Dispatch`: compute dispatch
+- `CopyBufferToImage`: staging uploads
+- `Blit`: image-to-image copy with format conversion
 
 ### 6.2 Handles
 
-Opaque, typed indices into GPU-side pools. No pointers, no classes, no GC-tracked references to GPU objects. Handles are inert data — creating one does nothing; only passing it to `Gpu.*` methods causes side effects.
+Opaque, typed indices into GPU-side pools.
+No pointers, no classes, no GC-tracked references to GPU objects.
+Handles are inert data: creating one does nothing, and only passing it to `Gpu.*` methods causes side effects.
 
 **Handle types:** `BufferHandle`, `ImageHandle`, `SamplerHandle`, `PipelineHandle`, `DescriptorSetHandle`, `ShaderModuleHandle`.
 
@@ -138,16 +155,17 @@ Each is a `readonly record struct` wrapping a `uint` index and a `uint` generati
 
 All GPU resource creation goes through immutable descriptor records:
 
-- `BufferDesc` — size, usage flags, memory location
-- `ImageDesc` — dimensions, format, usage, mip levels, sample count
-- `SamplerDesc` — filtering, addressing, anisotropy
-- `GraphicsPipelineDesc` — shader modules, vertex layout, raster state, depth state, color formats, blend state
-- `ComputePipelineDesc` — shader module, push constant layout, descriptor set layouts
-- `RenderPassDesc` — color/depth attachments, load/store ops, formats
+- `BufferDesc`: size, usage flags, memory location
+- `ImageDesc`: dimensions, format, usage, mip levels, sample count
+- `SamplerDesc`: filtering, addressing, anisotropy
+- `GraphicsPipelineDesc`: shader modules, vertex layout, raster state, depth state, color formats, blend state
+- `ComputePipelineDesc`: shader module, push constant layout, descriptor set layouts
+- `RenderPassDesc`: color/depth attachments, load/store ops, formats
 
 ### 6.4 GpuState
 
-The single mutable kernel. Contains:
+The single mutable kernel.
+Contains:
 
 - `Silk.NET.Vulkan.Vk` instance
 - Physical device, logical device, queues
@@ -157,21 +175,30 @@ The single mutable kernel. Contains:
 - Swapchain state
 - Descriptor pool
 
-Passed explicitly by `ref` — never global, never static, never ambient.
+Passed explicitly by `ref`, never global, never static, never ambient.
 
 ### 6.5 Asset Boundary
 
-Imported and registered content (meshes, textures, materials) is addressed by typed opaque ids — `MeshId`, `TextureId`, `MaterialId` — not by GPU handles. The split mirrors the purity boundary:
+Imported and registered content (meshes, textures, materials) is addressed by typed opaque ids (`MeshId`, `TextureId`, `MaterialId`) rather than by GPU handles.
+The split mirrors the purity boundary:
 
-- **`IAssetCatalog`** is the pure read interface. Returns CPU-side `MeshAsset`, `TextureAsset`, `MaterialAsset` records by id. Scene snapshots, papers, and editor panels consume only this view. No GPU handles ever appear here.
-- **`IGpuAssetResolver`** is the shell-side resolver. Pass recorders call it at `CmdDraw` time to get `GpuMeshHandles` (vertex/index buffers + index count) and `GpuTextureHandles` (image view + sampler).
-- **`AssetRegistry`** is the single owner of both views. It implements `IAssetCatalog` + `IGpuAssetResolver` + `IDisposable`, owns mesh and texture GPU resources, and serves in-place edits to material assets via `UpdateMaterial`.
+- **`IAssetCatalog`** is the pure read interface.
+  Returns CPU-side `MeshAsset`, `TextureAsset`, `MaterialAsset` records by id.
+  Scene snapshots, papers, and editor panels consume only this view.
+  No GPU handles ever appear here.
+- **`IGpuAssetResolver`** is the shell-side resolver.
+  Pass recorders call it at `CmdDraw` time to get `GpuMeshHandles` (vertex/index buffers + index count) and `GpuTextureHandles` (image view + sampler).
+- **`AssetRegistry`** is the single owner of both views.
+  It implements `IAssetCatalog` + `IGpuAssetResolver` + `IDisposable`, owns mesh and texture GPU resources, and serves in-place edits to material assets via `UpdateMaterial`.
 
-Material assets are mutable in place: the editor edits the named asset by id rather than carrying a copy on each `Drawable`. The pure UI reducer treats material edits as no-ops; the shell intercepts them and calls the registry before resolving the next frame.
+Material assets are mutable in place: the editor edits the named asset by id rather than carrying a copy on each `Drawable`.
+The pure UI reducer treats material edits as no-ops; the shell intercepts them and calls the registry before resolving the next frame.
 
-Built-in fallbacks (1×1 white texture, default Blinn-Phong material) cover `TextureId.None` / `MaterialId.None` so render code dereferences unconditionally. The registry refuses to remove these.
+Built-in fallbacks (1×1 white texture, default Blinn-Phong material) cover `TextureId.None` / `MaterialId.None` so render code dereferences unconditionally.
+The registry refuses to remove these.
 
-Asset removal supports a per-frame deferred-destroy queue. Pending GPU resources carry a safety frame of `currentFrame + MaxFramesInFlight + 1` and are released on `AssetRegistry.Tick()` once that frame is reached.
+Asset removal supports a per-frame deferred-destroy queue.
+Pending GPU resources carry a safety frame of `currentFrame + MaxFramesInFlight + 1` and are released on `AssetRegistry.Tick()` once that frame is reached.
 
 ### 6.6 Render Graph
 
@@ -187,7 +214,8 @@ Asset removal supports a per-frame deferred-destroy queue. Pending GPU resources
 - Barrier commands to insert before execution
 - Resource aliasing decisions (transient resources sharing memory)
 
-**Algorithm:** topological sort on resource dependencies, then linear scan for lifetime analysis and barrier placement. Reference: Frostbite's FrameGraph (Wihlidal, GDC 2017).
+**Algorithm:** topological sort on resource dependencies, then linear scan for lifetime analysis and barrier placement.
+Reference: Frostbite's FrameGraph (Wihlidal, GDC 2017).
 
 ---
 
@@ -200,7 +228,7 @@ Asset removal supports a per-frame deferred-destroy queue. Pending GPU resources
 | Windowing (desktop) | Silk.NET GLFW | Flat C-style API, easy to wrap as a poll loop. Avoids OOP event callback patterns. |
 | Shader compilation | glslc / dxc (subprocess) | GLSL/HLSL → SPIR-V. Called at build time or on-demand. No runtime compiler dependency. |
 | Memory allocation | Hand-rolled `Allocator` (intent-based, one `vkAllocateMemory` per resource) | Pragmatic for the lab's allocation volume; sub-allocation deferred. VMA P/Invoke remains the upgrade path if a measurable bottleneck appears. |
-| Debug UI | ImGui.NET (managed) | Idiomatic C# bindings. Renders through the engine's own Vulkan backend. |
+| Editor UI | Ptah (own immediate-mode library, project reference) | Replaced ImGui.NET panel by panel. Its Vulkan backend borrows the engine's device and render pass rather than creating its own. |
 | Mesh loading | Hand-rolled OBJ parser + SharpGLTF (managed) | SharpGLTF parses .gltf/.glb without P/Invoke; the asset registry orchestrates upload. |
 | Texture loading | StbImageSharp (managed PNG/JPEG decode) | Decodes embedded glTF images to RGBA. KTX2 / GPU-compressed formats deferred until a paper needs them. |
 | File picker | NativeFileDialogSharp | Native OS file dialogs (one native dep, RID-based runtime libs). Used by the editor's `File → Import glTF…`. |
@@ -209,14 +237,18 @@ Asset removal supports a per-frame deferred-destroy queue. Pending GPU resources
 
 ### 7.1 wgpu Future Path
 
-The Gpu module's public surface (handles, descriptors, `Submit`) is designed to be backend-agnostic. A future `RenderLab.Gpu.Wgpu` implementation would:
+The Gpu module's public surface (handles, descriptors, `Submit`) is designed to be backend-agnostic.
+A future `RenderLab.Gpu.Wgpu` implementation would:
 
 - Replace `Silk.NET.Vulkan` calls with `wgpu-native` P/Invoke calls.
 - Map handle pools to wgpu object lifetimes.
 - Translate `RenderCommand` spans into wgpu render/compute pass encoders.
 - Eliminate manual barrier insertion (wgpu handles transitions internally).
 
-**No code above the Gpu module changes.** The render graph still compiles passes. Papers still produce commands. Only the translation to GPU API calls differs.
+**No code above the Gpu module changes.**
+The render graph still compiles passes.
+Papers still produce commands.
+Only the translation to GPU API calls differs.
 
 ---
 
@@ -237,89 +269,133 @@ supportsGeometryShader, supportsTessellation,
 maxSamplersPerStage, subgroupSize, etc.
 ```
 
-Papers query this record — they never call Vulkan directly.
+Papers query this record; they never call Vulkan directly.
 
 ---
 
 ## 9. Project Structure
 
 ```
-RenderLab.sln
+code.sln
 ├── src/
 │   ├── RenderLab.Functional/        Optional<T>, Result<T,E>, unions, Pipe, Seq
 │   ├── RenderLab.Assets/            MeshId/TextureId/MaterialId, MeshAsset, TextureAsset,
 │   │                                 MaterialAsset DU + BlinnPhongMaterial, Vertex3D,
-│   │                                 MeshData, ObjLoader, GltfLoader, IAssetCatalog —
+│   │                                 MeshData, ObjLoader, GltfLoader, IAssetCatalog -
 │   │                                 pure data + parsing, no GPU
 │   ├── RenderLab.Gpu/               Handles, descriptors, GpuState, Gpu module + Allocator
 │   │                                 (Silk.NET Vulkan calls live here and only here);
-│   │                                 Assets/ holds AssetRegistry + GPU resolver
+│   │                                 Assets/ holds AssetRegistry + GPU resolver,
+│   │                                 Debug/ holds GpuTimestamps
 │   ├── RenderLab.Graph/             RenderPass, RenderGraph compiler, barrier logic
 │   ├── RenderLab.Platform.Desktop/  GLFW window, surface creation, main loop, file dialogs
 │   ├── RenderLab.Scene/             Camera, Transform, Drawable (MeshId+MaterialId),
 │   │                                 Light DU, HemisphericAmbient, MaterialParams,
-│   │                                 FreeCameraController — immutable records
+│   │                                 FreeCameraController - immutable records
 │   ├── RenderLab.Shaders/           GLSL/HLSL sources, build-time SPIR-V compilation
+│   ├── RenderLab.Project/           Pure project manifest + SceneDocument model, JSON IO,
+│   │                                 EditorSettings, project asset index
 │   ├── RenderLab.Ui/                Pure Elm-style UI state (Model/Msg/Update/Intent)
-│   ├── RenderLab.Ui.ImGui/          Imperative shell for RenderLab.Ui: ImGui views, stats overlay, GPU timers
-│   ├── RenderLab.Papers/            Paper implementations as static modules
-│   │   ├── ClearScreen.cs           Milestone 0: validate full chain
-│   │   ├── ForwardLit.cs            Milestone 1: basic forward pass
-│   │   ├── DeferredGBuffer.cs       Milestone 2: multi-attachment
+│   ├── RenderLab.Editor/            View layer over Ptah: shell layout, menu bar, panels
+│   ├── RenderLab.Papers/            Pass modules, one file per technique
+│   │   ├── GBufferPass.cs           Geometry pass: position, normal, albedo
+│   │   ├── DeferredLighting.cs      Fullscreen lighting over the G-Buffer
+│   │   ├── TonemapPass.cs           HDR resolve
+│   │   ├── DebugVizPass.cs          Buffer visualization
 │   │   └── ...                      Each paper adds a file, not plumbing
-│   └── RenderLab.App/              Composition root: wires everything
+│   ├── RenderLab.Pipelines/         IPipeline + PipelineRegistry, the Triangle / GBuffer /
+│   │                                 Deferred pipelines, SceneLoader, SceneBuilder
+│   └── RenderLab.App/               Application composition root + Program (project-path argv)
+├── projects/                        triangle/, gbuffer/, deferred/ starter projects
 └── tests/
     ├── RenderLab.Graph.Tests/       Render graph compilation is pure → fully testable
-    └── RenderLab.Functional.Tests/  Core library tests
+    ├── RenderLab.Scene.Tests/       Camera math, free-fly controller, material packing
+    ├── RenderLab.Ui.Tests/          Pure UI reducers (Model/Msg/Update)
+    ├── RenderLab.Project.Tests/     Manifest + scene round-trip, path sandbox
+    └── RenderLab.Editor.Tests/      Panel layout, headless frame of the Ptah shell
 ```
 
 ---
 
 ## 10. Milestones
 
-### M0 — Triangle of Truth
+### M0: Triangle of Truth
 **Deliverable:** Clear screen to a solid color via the full chain.
 **Validates:** GLFW → Vulkan surface → device → swapchain → command buffer → present.
-**Scope:** Platform + Gpu module only. No render graph yet.
+**Scope:** Platform + Gpu module only.
+No render graph yet.
 
-### M1 — First Pass
+### M1: First Pass
 **Deliverable:** Indexed triangle drawn via a `GraphicsPipeline`, with vertex/fragment shaders compiled from GLSL to SPIR-V.
 **Validates:** Pipeline creation, buffer upload, shader module loading, draw command translation.
 
-### M2 — Render Graph Online
+### M2: Render Graph Online
 **Deliverable:** Two-pass rendering (geometry → post-process blit) driven by the render graph compiler.
 **Validates:** Graph compilation, barrier insertion, transient resource creation, multi-pass command sequencing.
 
-### M3 — Deferred Baseline
-**Deliverable:** GBuffer pass (position, normal, albedo) → lighting pass → tonemap. Loaded OBJ mesh. Debug ImGui overlay showing GPU timings. Lighting pass is a scaffold — a constant ambient term is enough to validate the plumbing.
-**Validates:** Multiple color attachments, descriptor sets, push constants, compute or fullscreen-quad lighting, ImGui integration.
+### M3: Deferred Baseline
+**Deliverable:** GBuffer pass (position, normal, albedo) → lighting pass → tonemap.
+Loaded OBJ mesh.
+Debug overlay showing GPU timings.
+Lighting pass is a scaffold; a constant ambient term is enough to validate the plumbing.
+**Validates:** Multiple color attachments, descriptor sets, push constants, compute or fullscreen-quad lighting, overlay integration.
 
-### M4 — Basic Lighting
-**Deliverable:** A fully lit scene in the deferred lighting pass. Sequenced to match the Lighting block of the blog roadmap: Phong/Blinn-Phong surface response, multiple point lights with attenuation and light volumes, then directional lights plus hemispheric ambient. Each step produces a rendered output and a companion blog post.
-**Validates:** The lighting pass as a composition surface — per-light accumulation, material parameters via push constants or SSBOs.
+### M4: Basic Lighting
+**Deliverable:** A fully lit scene in the deferred lighting pass.
+Sequenced to match the Lighting block of the blog roadmap: Phong/Blinn-Phong surface response, multiple point lights with attenuation and light volumes, then directional lights plus hemispheric ambient.
+Each step produces a rendered output and a companion blog post.
+**Validates:** The lighting pass as a composition surface: per-light accumulation, material parameters via push constants or SSBOs.
 
-### M5 — Lab as Editor
-**Deliverable:** Turn the renderer into an interactive lab editor. Three capabilities, each with a companion blog post in the Editor block:
+### M5: Lab as Editor
+**Deliverable:** Turn the renderer into an interactive lab editor.
+Three capabilities, each with a companion blog post in the Editor block:
 
-1. **Shader hot-reload** — file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes. *(open — moved to M7)*
-2. **Scene inspector** — the existing ScenePanel grows into a real inspector. Edit transforms (including rotation), lights, and material parameters live. The pure Scene snapshot remains the source of truth; the editor is an Elm-style Model/Msg/Update layer producing intents. *(landed)*
-3. **Asset import + registry** — load real 3D models from glTF (and OBJ). The pure `GltfLoader` returns an `Import` blueprint of meshes, textures, materials, and drawable seeds; the shell-side `AssetRegistry` walks the blueprint in dependency order and rewrites blueprint indices into typed ids. An asset browser lists every registered mesh/texture/material with reference counts and per-row remove buttons; per-drawable mesh/material/albedo-texture swaps land in the inspector. Removal is reference-safe (refused with a log if anything still points at the asset) and frees GPU resources via a `MaxFramesInFlight + 1` deferred-destroy queue. *(landed)*
+1. **Shader hot-reload**: file-watch GLSL sources, recompile to SPIR-V, and swap pipelines without restarting.
+   A failed compile keeps the previous pipeline live; the frame never crashes. *(open, moved to M7)*
+2. **Scene inspector**: the existing ScenePanel grows into a real inspector.
+   Edit transforms (including rotation), lights, and material parameters live.
+   The pure Scene snapshot remains the source of truth; the editor is an Elm-style Model/Msg/Update layer producing intents. *(landed)*
+3. **Asset import + registry**: load real 3D models from glTF (and OBJ).
+   The pure `GltfLoader` returns an `Import` blueprint of meshes, textures, materials, and drawable seeds; the shell-side `AssetRegistry` walks the blueprint in dependency order and rewrites blueprint indices into typed ids.
+   An asset browser lists every registered mesh/texture/material with reference counts and per-row remove buttons; per-drawable mesh/material/albedo-texture swaps land in the inspector.
+   Removal is reference-safe (refused with a log if anything still points at the asset) and frees GPU resources via a `MaxFramesInFlight + 1` deferred-destroy queue. *(landed)*
 
-**Validates:** The lab is no longer a hardcoded scene runner. The paper-first workflow gets its iteration loop: tweak a light, see it move; drop in a glTF, see it render. Scene inspector + asset import landed; shader hot-reload deferred to M7 so the editor work can pivot to persistence (M6).
+**Validates:** The lab is no longer a hardcoded scene runner.
+The paper-first workflow gets its iteration loop: tweak a light, see it move; drop in a glTF, see it render.
+Scene inspector + asset import landed; shader hot-reload deferred to M7 so the editor work can pivot to persistence (M6).
 
-### M6 — Project as the Runnable Unit
-**Deliverable:** The engine's runnable workspace becomes a **Project** — a folder on disk with a `project.json` manifest, a mandatory `assets/` subfolder, and one-or-more `*.scene.json` files. The current `triangle` / `gbuffer` / `deferred` demos become starter projects shipped in `code/projects/`. `Program.cs` dispatches on a project path argv, not a demo name. A new typed `IPipeline<TContent, TConfig>` interface (in a new `RenderLab.Pipelines` assembly) replaces `IDemo`; a new pure `RenderLab.Project` assembly owns the manifest + `SceneDocument` types and JSON serializers (System.Text.Json — no new dep).
+### M6: Project as the Runnable Unit
+**Deliverable:** The engine's runnable workspace becomes a **Project**: a folder on disk with a `project.json` manifest, a mandatory `assets/` subfolder, and one-or-more `*.scene.json` files.
+The current `triangle` / `gbuffer` / `deferred` demos become starter projects shipped in `code/projects/`.
+`Program.cs` dispatches on a project path argv, not a demo name.
+A new typed `IPipeline<TContent, TConfig>` interface (in a new `RenderLab.Pipelines` assembly) replaces `IDemo`; a new pure `RenderLab.Project` assembly owns the manifest + `SceneDocument` types and JSON serializers (System.Text.Json, no new dep).
 
 Phased landing:
-- **M6.1 — Engine restructure + read-only projects. *(landed)*** New `RenderLab.Project` + `RenderLab.Pipelines` assemblies; `Triangle`/`GBuffer`/`Deferred` demos rewritten as `IPipeline` implementations; starter projects ship under `code/projects/`. `Application` (in `RenderLab.App`) owns window/GPU/ImGui/AssetRegistry/loop and routes registry-side asset edits. `Program.cs` parses a project path argv and hands off to `Application`. `dotnet run -- code/projects/<name>` launches each.
-- **M6.2 — Save. *(landed)*** `File → Save Scene` (and `Save Scene As…`) round-trip the active scene — drawables, materials, camera, lights, render config — back to its `*.scene.json` via the pure `SceneDocumentBuilder`. Procedural assets persist symbolically (generator + params); imported glTF/glb files persist as project-relative `FileSourceDoc` references. The shell tracks an `AppUiModel.SceneDirty` flag from any UI mutation or registry-side asset edit; it clears on save.
-- **M6.3 — Multi-scene UX + per-user settings. *(landed)*** `File` menu now hosts an `Open Scene` submenu over `manifest.Scenes`, plus `Reload Scene`, `Open Project…`, and `New Project…`. Scene swap waits for GPU idle, drops pipeline scene-state caches, and resets the asset registry to built-ins before re-loading. Project swap also disposes the current `IPipeline` and instantiates the new manifest's. Per-user editor settings live in `%LOCALAPPDATA%\RenderLab\editor.json` (`EditorSettings` + `EditorSettingsIO` in `RenderLab.Project`) — last-open project, last-active scene, and hidden-panel list — restored on launch when no argv is given.
+- **M6.1: Engine restructure + read-only projects. *(landed)***
+  New `RenderLab.Project` + `RenderLab.Pipelines` assemblies; `Triangle`/`GBuffer`/`Deferred` demos rewritten as `IPipeline` implementations; starter projects ship under `code/projects/`.
+  `Application` (in `RenderLab.App`) owns window/GPU/editor/AssetRegistry/loop and routes registry-side asset edits.
+  `Program.cs` parses a project path argv and hands off to `Application`.
+  `dotnet run --project src/RenderLab.App -- projects/<name>` launches each.
+- **M6.2: Save. *(landed)***
+  `File → Save Scene` (and `Save Scene As…`) round-trip the active scene (drawables, materials, camera, lights, render config) back to its `*.scene.json` via the pure `SceneDocumentBuilder`.
+  Procedural assets persist symbolically (generator + params); imported glTF/glb files persist as project-relative `FileSourceDoc` references.
+  The shell tracks an `AppUiModel.SceneDirty` flag from any UI mutation or registry-side asset edit; it clears on save.
+- **M6.3: Multi-scene UX + per-user settings. *(landed)***
+  `File` menu now hosts an `Open Scene` submenu over `manifest.Scenes`, plus `Reload Scene`, `Open Project…`, and `New Project…`.
+  Scene swap waits for GPU idle, drops pipeline scene-state caches, and resets the asset registry to built-ins before re-loading.
+  Project swap also disposes the current `IPipeline` and instantiates the new manifest's.
+  Per-user editor settings live in `%LOCALAPPDATA%\RenderLab\editor.json` (`EditorSettings` + `EditorSettingsIO` in `RenderLab.Project`): last-open project, last-active scene, and hidden-panel list, restored on launch when no argv is given.
 
-**Validates:** Every runnable workspace is on disk and version-controllable. The paper-first workflow gets the missing half of its iteration loop: edits persist; sessions resume; sample setups ship with the engine. Functional-Core/Imperative-Shell holds — the pure `SceneDocument` builder mirrors the existing `IAssetCatalog` / `IGpuAssetResolver` split.
+**Validates:** Every runnable workspace is on disk and version-controllable.
+The paper-first workflow gets the missing half of its iteration loop: edits persist; sessions resume; sample setups ship with the engine.
+Functional-Core/Imperative-Shell holds: the pure `SceneDocument` builder mirrors the existing `IAssetCatalog` / `IGpuAssetResolver` split.
 
-### M7 — Shader Hot-Reload (was M5 ¶1)
-**Deliverable:** File-watch GLSL sources, recompile to SPIR-V, swap pipelines without restarting. A failed compile keeps the previous pipeline live; the frame never crashes.
-**Validates:** The last missing leg of the editor iteration loop — change a shader, see it recompile.
+### M7: Shader Hot-Reload (was M5 ¶1) *(landed)*
+**Deliverable:** File-watch GLSL sources, recompile to SPIR-V, swap pipelines without restarting.
+A failed compile keeps the previous pipeline live; the frame never crashes.
+`ShaderHotReload` (in `RenderLab.Gpu`) pumps once per frame from `Application.Loop` and calls `IPipeline.ReloadShaders`; F5 forces a full reload.
+Documented in `docs/HOT-SHADER-RELOAD.md`.
+**Validates:** The last missing leg of the editor iteration loop: change a shader, see it recompile.
 
 ---
 
@@ -340,7 +416,7 @@ Phased landing:
 
 | Risk | Impact | Mitigation |
 |------|--------|------------|
-| Silk.NET Vulkan bindings have gaps or bugs | Gpu module blocked | Pin Silk.NET version. Patch locally if needed. Bindings are auto-generated from vk.xml — coverage is near-complete. |
+| Silk.NET Vulkan bindings have gaps or bugs | Gpu module blocked | Pin Silk.NET version. Patch locally if needed. Bindings are auto-generated from vk.xml, so coverage is near-complete. |
 | VMA P/Invoke interop complexity | Gpu module delayed | Use existing community bindings or generate from VMA's C API header. Small surface (~20 functions needed). |
 | Scope creep into engine features | Project stalls | This document is the scope. If it's not in the milestones, it doesn't exist. |
 | Render graph over-engineering | Premature abstraction | Start with linear pass ordering in M1. Add topological sort in M2. Add aliasing only when a paper needs transient resources. |
@@ -353,8 +429,9 @@ The project succeeds when:
 
 1. A new paper implementation requires creating **one file** containing **pure functions** that produce render passes.
 2. Time from "paper PDF open" to "first incorrect pixels on screen" is **under one evening session**.
-3. The render graph is **fully unit-testable** without a GPU — because it's pure.
+3. The render graph is **fully unit-testable** without a GPU, because it is pure.
 
 ---
 
-*This document is the scope. Features not listed here do not exist.*
+*This document is the scope.*
+*Features not listed here do not exist.*

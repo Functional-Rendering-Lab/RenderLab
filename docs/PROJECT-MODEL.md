@@ -1,12 +1,18 @@
 # Project Model
 
-A **project** is the runnable unit of the lab. It is a folder on disk with a `project.json` manifest, a mandatory `assets/` subfolder, and zero-or-more `*.scene.json` files. The engine takes a project path as its single argument:
+A **project** is the runnable unit of the lab.
+It is a folder on disk with a `project.json` manifest, a mandatory `assets/` subfolder, and zero-or-more `*.scene.json` files.
+The engine takes a project path as its single argument, resolved against the working directory:
 
 ```
-dotnet run --project src/RenderLab.App -- code/projects/deferred
+# from code/
+dotnet run --project src/RenderLab.App -- projects/deferred
 ```
 
-The starter projects under `code/projects/` (`triangle/`, `gbuffer/`, `deferred/`) replaced the per-article demo classes that used to live in `code/src/RenderLab.App/Demos/`. There is no demo dispatcher and no `IDemo` interface — the engine resolves the project's pipeline id against a `PipelineRegistry`, opens the default scene if the pipeline declares `ConsumesScenes`, and runs.
+With no argument the engine reopens the last project from the per-user editor settings, and falls back to the `deferred` project staged next to the binary.
+
+The starter projects under `code/projects/` (`triangle/`, `gbuffer/`, `deferred/`) replaced the per-article demo classes that used to live in `code/src/RenderLab.App/Demos/`.
+There is no demo dispatcher and no `IDemo` interface: the engine resolves the project's pipeline id against a `PipelineRegistry`, opens the default scene if the pipeline declares `ConsumesScenes`, and runs.
 
 ## On-disk layout
 
@@ -32,29 +38,47 @@ my-project/
 }
 ```
 
-`pipeline` is the string id registered in `PipelineRegistry` (`triangle`, `gbuffer`, `deferred`). `defaultScene` and `scenes` entries are project-relative paths; `ProjectIO.ResolveProjectPath` rejects anything that escapes the project root after normalisation.
+`pipeline` is the string id registered in `PipelineRegistry` (`triangle`, `gbuffer`, `deferred`).
+`defaultScene` and `scenes` entries are project-relative paths; `ProjectIO.ResolveProjectPath` rejects anything that escapes the project root after normalisation.
 
-A scene file holds camera, ambient, lights, render config, asset declarations (meshes / textures / materials), and drawables. Assets are scene-scoped; drawables reference them by index into the per-scene arrays. See `code/projects/deferred/scenes/main.scene.json` for a worked example. The full schema lives in `code/src/RenderLab.Project/SceneDocument.cs`.
+A scene file holds camera, ambient, lights, render config, asset declarations (meshes / textures / materials), and drawables.
+Assets are scene-scoped; drawables reference them by index into the per-scene arrays.
+See `code/projects/deferred/scenes/main.scene.json` for a worked example.
+The full schema lives in `code/src/RenderLab.Project/SceneDocument.cs`.
 
 ## Pipeline contract
 
 `IPipeline` (in `RenderLab.Pipelines`) is the single contract a rendering technique implements:
 
-- `Id` — must match the `pipeline` field in `project.json`.
-- `ConsumesScenes` — when `true`, the Application opens the default scene, builds a `Scene` snapshot each frame from `UiModel`, and shows the editor panels (Scene, AssetBrowser, etc.) via `UiView.Draw`.
-- `Initialize(gpu, assets, overlayRenderPass)` — long-lived GPU resources.
-- `RecreateTransient(gpu)` — swapchain-sized resources.
-- `RecordFrame(gpu, cb, scene, ui, dt, imageIndex)` — record draw commands; must leave the swapchain image in `PresentSrcKhr`.
-- `DrawDebugUi()` — optional pipeline-specific ImGui windows (e.g. GBuffer's vizMode combo).
-- `GetFrameStats(dt)` — optional snapshot of GPU timestamps + the resolved render graph for the editor's debug panels.
+- `Id`: must match the `pipeline` field in `project.json`.
+- `ConsumesScenes`: when `true`, the Application opens the default scene, builds a `Scene` snapshot each frame from `UiModel`, and shows the editor's scene-facing panels (Scene, Asset Browser, Inspector).
+- `SupportedVisualizations`: which `VisualizationMode` values this pipeline can actually resolve to the screen.
+  The Visualization panel offers these and no others, so the panel and the screen cannot disagree.
+  Defaults to every mode.
+- `Initialize(gpu, assets)`: long-lived GPU resources (render passes, pipeline state, descriptor layouts).
+- `RecreateTransient(gpu, target)`: resources sized to the viewport, plus the last pass's framebuffer hung on the target's view.
+  Called on startup and on every viewport resize, with the device idle.
+- `TickStats()`: optional read of the previous frame's GPU timestamps, before `BeginFrame`.
+- `RecordFrame(gpu, cb, scene, ui, dt, target)`: record draw commands; must leave `target` readable by a shader.
+- `GetFrameStats(dt)`: optional snapshot of GPU timestamps + the resolved render graph for the editor's debug panels.
+- `ResetSceneState()`: optional hook to drop caches keyed on registered asset ids.
+- `ReloadShaders(gpu)`: optional rebuild of the pipeline's `VkPipeline` / `PipelineLayout` from freshly compiled SPIR-V.
+  See [`HOT-SHADER-RELOAD.md`](HOT-SHADER-RELOAD.md).
 
-The Application records the ImGui overlay pass on top of whatever the pipeline left in the swapchain — pipelines no longer need to know about the overlay render pass beyond receiving it in `Initialize` (some pipelines may want to chain their own LoadOp.Load passes).
+Nothing on this contract draws an interface.
+A pipeline renders into an offscreen target sized to the editor's viewport panel and never touches the swapchain: the editor draws that target as a picture, and records its own overlay pass on top.
+A pipeline that wants a control exposes state on `UiModel`, which the editor already has panels for, rather than drawing a window of its own.
 
 ## Save / load split
 
-The pure layer (`RenderLab.Project`) reads and writes documents — bytes ↔ records — without any GPU calls. `SceneLoader` (in `RenderLab.Pipelines`) is the impure boundary: it walks the document and resolves each drawable's `AssetRef` through a `SceneAssetResolver`, returning a `LoadedScene(UiModel, SceneAssetSources)`. The resolver is the lazy bridge from project-level `AssetRef` to runtime `MeshId` / `TextureId` / `MaterialId` — the first call for a given ref imports from source (procedural generator or glTF) and registers in the `AssetRegistry`; subsequent calls return the cached id. Because the resolver outlives any single scene, swapping scenes inside a project reuses ids and GPU uploads instead of wiping and re-uploading. The save side is the inverse — `SceneDocumentBuilder.From(ui, catalog, sources)` is pure.
+The pure layer (`RenderLab.Project`) reads and writes documents (bytes ↔ records) without any GPU calls.
+`SceneLoader` (in `RenderLab.Pipelines`) is the impure boundary: it walks the document and resolves each drawable's `AssetRef` through a `SceneAssetResolver`, returning a `LoadedScene(UiModel, SceneAssetSources)`.
+The resolver is the lazy bridge from project-level `AssetRef` to runtime `MeshId` / `TextureId` / `MaterialId`: the first call for a given ref imports from source (procedural generator or glTF) and registers in the `AssetRegistry`; subsequent calls return the cached id.
+Because the resolver outlives any single scene, swapping scenes inside a project reuses ids and GPU uploads instead of wiping and re-uploading.
+The save side is the inverse: `SceneDocumentBuilder.From(ui, catalog, sources)` is pure.
 
-`SceneAssetSources` is the runtime mapping from registered ids back to the symbolic `AssetSourceDoc` they came from. The loader populates it as it materialises the scene; the shell extends it on every glTF import; the builder consumes it on save so file paths and procedural generator parameters round-trip into the on-disk scene without ever baking pixels or vertices.
+`SceneAssetSources` is the runtime mapping from registered ids back to the symbolic `AssetSourceDoc` they came from.
+The loader populates it as it materialises the scene; the shell extends it on every glTF import; the builder consumes it on save so file paths and procedural generator parameters round-trip into the on-disk scene without ever baking pixels or vertices.
 
 This mirrors the existing `IAssetCatalog` / `IGpuAssetResolver` split: the document model is pure data; the registry is the single owner of GPU lifetimes.
 
@@ -62,17 +86,24 @@ This mirrors the existing `IAssetCatalog` / `IGpuAssetResolver` split: the docum
 
 The editor's `File` menu drives the project / scene lifecycle:
 
-- **Save Scene** (`Ctrl+S`) — writes the active scene to its `*.scene.json` via `SceneDocumentBuilder` + `ProjectIO.WriteScene`. The menu label includes the scene path and a `*` when `AppUiModel.SceneDirty` is set.
-- **Save Scene As…** — opens a `*.scene.json` save dialog, defaults to the project's `scenes/` folder, and adds the new scene to the manifest's `scenes` list (so it shows up in *Open Scene* immediately).
-- **Open Scene** — submenu listing every scene in `manifest.Scenes`. Clicking re-runs `SceneLoader.Load` against the new document with the persistent `SceneAssetResolver`; assets already uploaded by previous scenes are reused by GUID, so a scene swap inside a project does not idle the GPU or wipe the registry. (Switching to a different *project* still tears the registry down to built-ins — see *Open Project…* below.)
-- **Reload Scene** — re-reads the active scene from disk, dropping any unsaved edits.
-- **Open Project…** / **New Project…** — folder picker. *New Project* writes a minimal `project.json` + `assets/` + a sphere starter scene (`deferred` pipeline) and opens it. Switching projects also disposes the current `IPipeline` and instantiates a fresh one resolved from the new manifest's pipeline id.
+- **Save Scene** (`Ctrl+S`): writes the active scene to its `*.scene.json` via `SceneDocumentBuilder` + `ProjectIO.WriteScene`.
+  The menu label includes the scene path and a `*` when `AppUiModel.SceneDirty` is set.
+- **Save Scene As…**: opens a `*.scene.json` save dialog, defaults to the project's `scenes/` folder, and adds the new scene to the manifest's `scenes` list (so it shows up in *Open Scene* immediately).
+- **Open Scene**: submenu listing every scene in `manifest.Scenes`.
+  Clicking re-runs `SceneLoader.Load` against the new document with the persistent `SceneAssetResolver`; assets already uploaded by previous scenes are reused by GUID, so a scene swap inside a project does not idle the GPU or wipe the registry.
+  (Switching to a different *project* still tears the registry down to built-ins; see *Open Project…* below.)
+- **Reload Scene**: re-reads the active scene from disk, dropping any unsaved edits.
+- **Open Project…** / **New Project…**: folder picker.
+  *New Project* writes a minimal `project.json` + `assets/` + a sphere starter scene (`deferred` pipeline) and opens it.
+  Switching projects also disposes the current `IPipeline` and instantiates a fresh one resolved from the new manifest's pipeline id.
 
-The `SceneDirty` flag is set on every change to the runtime `UiModel` (camera drag, panel edit, drawable transform) and on every registry-side asset edit (material slider). It clears on save and on scene swap.
+The `SceneDirty` flag is set on every change to the runtime `UiModel` (camera drag, panel edit, drawable transform) and on every registry-side asset edit (material slider).
+It clears on save and on scene swap.
 
 ## Per-user editor settings
 
-`%LOCALAPPDATA%\RenderLab\editor.json` (Windows) — or the platform equivalent of `Environment.SpecialFolder.LocalApplicationData` — persists `EditorSettings { LastProjectPath, LastScenePath, HiddenPanels[] }`. The schema lives in `RenderLab.Project/EditorSettings.cs`; the IO is `EditorSettingsIO.ReadOrDefault()` / `Write(settings)`.
+`%LOCALAPPDATA%\RenderLab\editor.json` (Windows), or the platform equivalent of `Environment.SpecialFolder.LocalApplicationData`, persists `EditorSettings { LastProjectPath, LastScenePath, HiddenPanels[] }`.
+The schema lives in `RenderLab.Project/EditorSettings.cs`; the IO is `EditorSettingsIO.ReadOrDefault()` / `Write(settings)`.
 
 Restore order on startup:
 
@@ -80,17 +111,22 @@ Restore order on startup:
 2. Else `LastProjectPath` from settings if the folder still exists.
 3. Else the staged `projects/deferred` next to the binary.
 
-If the restored project still lists `LastScenePath` in its `manifest.Scenes`, the Application opens that scene in place of the manifest's `defaultScene`. Settings persist on every scene/project switch and on shutdown — best-effort, so a read-only settings folder never blocks launch.
+If the restored project still lists `LastScenePath` in its `manifest.Scenes`, the Application opens that scene in place of the manifest's `defaultScene`.
+Settings persist on every scene/project switch and on shutdown.
+The write is best-effort, so a read-only settings folder never blocks launch.
 
 ## Procedural assets
 
-`{ "kind": "procedural", "generator": "sphere", "params": { "stacks": 32, "slices": 32 } }` is a *symbolic* reference — the loader calls `IProceduralAssetSource.TryCreateMesh`/`TryCreateTexture` to materialise it. `DefaultProceduralAssets` ships with `sphere`, `cube`, and `checker`. New generators register an additional `IProceduralAssetSource`. Procedural assets are never baked to PNG/OBJ on save: the generator name + params are the source of truth, so scene diffs stay tiny and tweaks to a generator propagate to every scene that uses it.
+`{ "kind": "procedural", "generator": "sphere", "params": { "stacks": 32, "slices": 32 } }` is a *symbolic* reference: the loader calls `IProceduralAssetSource.TryCreateMesh`/`TryCreateTexture` to materialise it.
+`DefaultProceduralAssets` ships with `sphere`, `cube`, and `checker`.
+New generators register an additional `IProceduralAssetSource`.
+Procedural assets are never baked to PNG/OBJ on save: the generator name + params are the source of truth, so scene diffs stay tiny and tweaks to a generator propagate to every scene that uses it.
 
 ## Adding a project
 
 1. Pick a pipeline id (`triangle` / `gbuffer` / `deferred` today; new pipelines add a `Register` line in `Program.cs`).
 2. Create `my-project/project.json` with that id.
-3. Create `my-project/assets/` (mandatory — `ProjectIO.ReadManifest` rejects projects without it).
+3. Create `my-project/assets/` (mandatory: `ProjectIO.ReadManifest` rejects projects without it).
 4. For scene-consuming pipelines, write at least one `*.scene.json` and point `defaultScene` at it.
 5. Run: `dotnet run --project src/RenderLab.App -- path/to/my-project`.
 

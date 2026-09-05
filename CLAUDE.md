@@ -1,19 +1,21 @@
-# Code Pillar — RenderLab Engine
+# Code Pillar: RenderLab Engine
 
-Scope: this file applies to any work under `code/`. For blog or web-page work, stop and route back to the root `CLAUDE.md`.
+Scope: this file applies to any work under `code/`.
+For blog or web-page work, stop and route back to the root `CLAUDE.md`.
 
 ## Always read first
 
 Before making any non-trivial change to the engine, read:
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — module graph, purity boundary, per-frame data flow, key abstractions, build commands.
-- [`docs/DOCUMENTATION-RULES.md`](docs/DOCUMENTATION-RULES.md) — when to write `docs/*.md` vs XML `<summary>` comments, and the 80/20 rule for API docs.
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md): module graph, purity boundary, per-frame data flow, key abstractions, build commands.
+- [`docs/DOCUMENTATION-RULES.md`](docs/DOCUMENTATION-RULES.md): when to write `docs/*.md` vs XML `<summary>` comments, and the 80/20 rule for API docs.
 
 When planning a new feature or milestone, also read [`RenderLab-PRD.md`](RenderLab-PRD.md) for goals and milestone context.
 
 ## When something is unclear, check `docs/` first
 
-If a doc exists for the area you are touching, read it before proposing changes. Available decision records:
+If a doc exists for the area you are touching, read it before proposing changes.
+Available decision records:
 
 | Doc | When to read |
 |---|---|
@@ -24,7 +26,7 @@ If a doc exists for the area you are touching, read it before proposing changes.
 | `docs/HOT-SHADER-RELOAD.md` | How shader hot reload works, what it covers, what it doesn't |
 | `docs/DOCUMENTATION-RULES.md` | Writing or editing any doc or XML comment |
 
-If you cannot find an answer in `docs/`, read the relevant code — do not guess.
+If you cannot find an answer in `docs/`, read the relevant code instead of guessing.
 
 ## Folder map
 
@@ -59,12 +61,24 @@ code/
 
 ## Tooling
 
-**Use Serena MCP for all code reading and writing.** Prefer Serena's semantic tools (`get_symbols_overview`, `find_symbol`, `read_file`, `replace_symbol_body`, `insert_after_symbol`, etc.) over raw file reads and text edits. This gives symbol-aware navigation and safer refactoring. Fall back to standard tools only when Serena cannot handle the operation (e.g. non-code files, shell commands).
+**Use Serena MCP for all code reading and writing.**
+Prefer Serena's semantic tools (`get_symbols_overview`, `find_symbol`, `read_file`, `replace_symbol_body`, `insert_after_symbol`, etc.) over raw file reads and text edits.
+This gives symbol-aware navigation and safer refactoring.
+Fall back to standard tools only when Serena cannot handle the operation (e.g. non-code files, shell commands).
 
 ## Core rules
 
-1. **Functional Core / Imperative Shell.** `RenderLab.Graph`, `RenderLab.Scene`, and `RenderLab.Functional` are pure and have zero internal dependencies. Keep it that way — no Vulkan types, no mutation, no I/O.
-2. **Single mutable kernel.** `GpuState` is the only mutable state. Pass it by reference; never make it global or static.
-3. **Tests without a GPU.** New pure logic gets a test under `tests/`. If a change cannot be unit-tested without a GPU, it probably belongs behind the purity boundary.
-4. **Follow `DOCUMENTATION-RULES.md`.** Decisions go in `docs/*.md`, API contracts go in XML `<summary>`. Do not invent a third channel.
-5. **Update docs in the same change.** If you change architecture, update `docs/ARCHITECTURE.md` alongside the code.
+1. **Functional Core / Imperative Shell.**
+   `RenderLab.Graph`, `RenderLab.Scene`, and `RenderLab.Functional` are pure and have zero internal dependencies.
+   Keep it that way: no Vulkan types, no mutation, no I/O.
+2. **Single mutable kernel.**
+   `GpuState` is the only mutable state.
+   Pass it by reference; never make it global or static.
+3. **Tests without a GPU.**
+   New pure logic gets a test under `tests/`.
+   If a change cannot be unit-tested without a GPU, it probably belongs behind the purity boundary.
+4. **Follow `DOCUMENTATION-RULES.md`.**
+   Decisions go in `docs/*.md`, API contracts go in XML `<summary>`.
+   Do not invent a third channel.
+5. **Update docs in the same change.**
+   If you change architecture, update `docs/ARCHITECTURE.md` alongside the code.
