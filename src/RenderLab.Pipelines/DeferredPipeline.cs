@@ -27,7 +27,7 @@ using Scene = RenderLab.Scene.Scene;
 /// <summary>
 /// The deferred pipeline. <c>ConsumesScenes</c>; reads UiModel for shading
 /// / ambient / lighting-only / viz / clear-colour. The Application appends
-/// the ImGui overlay pass after <see cref="RecordFrame"/>.
+/// the editor's overlay pass after <see cref="RecordFrame"/>.
 /// </summary>
 public sealed class DeferredPipeline : IPipeline
 {
@@ -46,7 +46,7 @@ public sealed class DeferredPipeline : IPipeline
     public MaterialDescriptors Materials => materials;
 
     // Render passes
-    RenderPass gbufferRenderPass, lightingRenderPass, tonemapRenderPass;
+    RenderPass gbufferRenderPass, lightingRenderPass, viewportRenderPass;
 
     // Descriptor layouts
     DescriptorSetLayout gbufferDsLayout, singleDsLayout, lightStorageDsLayout, cameraDsLayout;
@@ -60,8 +60,15 @@ public sealed class DeferredPipeline : IPipeline
     Image gbufferPosImage, gbufferNormImage, gbufferAlbImage, depthImage, hdrImage;
     Allocation gbufferPosAlloc, gbufferNormAlloc, gbufferAlbAlloc, depthAlloc, hdrAlloc;
     ImageView gbufferPosView, gbufferNormView, gbufferAlbView, depthView, hdrView;
-    Framebuffer gbufferFramebuffer, lightingFramebuffer;
-    Framebuffer[] swapchainFramebuffers = [];
+    Framebuffer gbufferFramebuffer, lightingFramebuffer, viewportFramebuffer;
+
+    /// <summary>
+    /// How big everything transient is, which is the viewport's size and no longer the window's.
+    /// Every pass in the chain runs at it: shading a G-buffer the size of the window and then
+    /// showing a panel-sized crop of it was work thrown away, and the aspect ratio it implied was
+    /// the wrong one.
+    /// </summary>
+    Extent2D viewportExtent;
     DescriptorPool gbufferDescPool, tonemapDescPool, debugVizDescPool, lightDescPool;
     DescriptorSet[] gbufferDescSets = [];
     DescriptorSet[] tonemapDescSets = [];
@@ -84,14 +91,14 @@ public sealed class DeferredPipeline : IPipeline
     // Stats + render graph
     GpuTimestamps timestamps = null!;
     ImmutableArray<ResolvedPass> resolvedPasses;
-    ResourceName gPosition, gNormal, gAlbedo, hdrColor, backbuffer;
+    ResourceName gPosition, gNormal, gAlbedo, hdrColor, viewport;
 
     // Captured each RecordFrame so the GBuffer recorder closure can read
     // the per-frame scene without an extra parameter.
     Scene? currentScene;
     UiModel currentUi = UiModel.Default;
 
-    public void Initialize(GpuState gpuState, AssetRegistry assetRegistry, RenderPass overlayRenderPass)
+    public void Initialize(GpuState gpuState, AssetRegistry assetRegistry)
     {
         gpu = gpuState;
         assets = assetRegistry;
@@ -100,7 +107,7 @@ public sealed class DeferredPipeline : IPipeline
 
         gbufferRenderPass  = VulkanPipeline.CreateGBufferRenderPass(gpu);
         lightingRenderPass = VulkanPipeline.CreateOffscreenRenderPass(gpu, VulkanPipeline.HdrFormat);
-        tonemapRenderPass  = VulkanPipeline.CreateRenderPass(gpu);
+        viewportRenderPass = VulkanPipeline.CreateViewportRenderPass(gpu);
 
         gbufferDsLayout      = VulkanDescriptors.CreateGBufferSamplerLayout(gpu);
         singleDsLayout       = VulkanDescriptors.CreateSamplerLayout(gpu);
@@ -122,7 +129,7 @@ public sealed class DeferredPipeline : IPipeline
         gNormal    = ResourceName.Of("GBuffer.Normal");
         gAlbedo    = ResourceName.Of("GBuffer.Albedo");
         hdrColor   = ResourceName.Of("HDR");
-        backbuffer = ResourceName.Of("Backbuffer");
+        viewport   = ResourceName.Of("Viewport");
 
         var passes = ImmutableArray.Create(
             new RenderPassDeclaration("GBuffer",
@@ -141,13 +148,14 @@ public sealed class DeferredPipeline : IPipeline
                 Outputs: [new PassOutput(hdrColor, ResourceUsage.ColorAttachmentWrite)]),
             new RenderPassDeclaration("Tonemap",
                 Inputs: [new PassInput(hdrColor, ResourceUsage.ShaderRead)],
-                Outputs: [new PassOutput(backbuffer, ResourceUsage.Present)]));
+                // Not Present any more, and not the backbuffer: what the last pass writes is the
+                // picture the editor draws, and the swapchain is reached only through it.
+                Outputs: [new PassOutput(viewport, ResourceUsage.ColorAttachmentWrite)]));
 
         resolvedPasses = RenderGraphCompiler.Compile(passes).Match(
             ok: r => r,
             error: e => throw new InvalidOperationException($"Render graph compile failed: {e}"));
 
-        Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
         Console.WriteLine($"  Passes: {string.Join(" -> ", resolvedPasses.Select(p => p.Declaration.Name))}");
         Console.WriteLine($"  Barriers: {resolvedPasses.Sum(p => p.BarriersBefore.Length)}");
     }
@@ -180,12 +188,12 @@ public sealed class DeferredPipeline : IPipeline
             out lightingPipelineLayout);
 
         tonemapPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, tonemapRenderPass, singleDsLayout, fsVert, tonemapFrag,
+            gpu, viewportRenderPass, singleDsLayout, fsVert, tonemapFrag,
             0, ShaderStageFlags.None,
             out tonemapPipelineLayout);
 
         debugVizPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, tonemapRenderPass, singleDsLayout, fsVert, debugVizFrag,
+            gpu, viewportRenderPass, singleDsLayout, fsVert, debugVizFrag,
             (uint)Marshal.SizeOf<DebugVizPushConstants>(), ShaderStageFlags.FragmentBit,
             out debugVizPipelineLayout);
 
@@ -210,12 +218,12 @@ public sealed class DeferredPipeline : IPipeline
         BuildPipelines();
     }
 
-    public void RecreateTransient(GpuState _)
+    public void RecreateTransient(GpuState _, RenderTarget target)
     {
         DestroyTransient();
 
-        var extent = gpu.SwapchainExtent;
-        uint w = extent.Width, h = extent.Height;
+        viewportExtent = target.Extent;
+        uint w = viewportExtent.Width, h = viewportExtent.Height;
 
         (gbufferPosImage,  gbufferPosAlloc,  gbufferPosView)  = VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferPositionFormat, w, h);
         (gbufferNormImage, gbufferNormAlloc, gbufferNormView) = VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferNormalFormat, w, h);
@@ -226,7 +234,8 @@ public sealed class DeferredPipeline : IPipeline
         gbufferFramebuffer = VulkanPipeline.CreateGBufferFramebuffer(
             gpu, gbufferRenderPass, gbufferPosView, gbufferNormView, gbufferAlbView, depthView, w, h);
         lightingFramebuffer = VulkanPipeline.CreateOffscreenFramebuffer(gpu, lightingRenderPass, hdrView, w, h);
-        swapchainFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, tonemapRenderPass);
+        viewportFramebuffer = VulkanPipeline.CreateOffscreenFramebuffer(
+            gpu, viewportRenderPass, target.View, w, h);
 
         uint frames = (uint)GpuState.MaxFramesInFlight;
 
@@ -250,7 +259,7 @@ public sealed class DeferredPipeline : IPipeline
 
     public void TickStats() => timestamps.ReadResults();
 
-    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? scene, UiModel ui, double deltaSeconds, uint imageIndex)
+    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? scene, UiModel ui, double deltaSeconds, RenderTarget target)
     {
         currentScene = scene ?? throw new InvalidOperationException("DeferredPipeline requires a scene");
         currentUi    = ui;
@@ -263,14 +272,14 @@ public sealed class DeferredPipeline : IPipeline
             [gNormal]    = gbufferNormImage,
             [gAlbedo]    = gbufferAlbImage,
             [hdrColor]   = hdrImage,
-            [backbuffer] = gpu.SwapchainImages[imageIndex],
+            [viewport]   = target.Image,
         };
 
         var passRecorders = new Dictionary<string, Action<Vk, CommandBuffer>>
         {
             ["GBuffer"]  = (api, c) => RecordGBufferPass(api, c),
             ["Lighting"] = (api, c) => RecordLightingPass(api, c),
-            ["Tonemap"]  = (api, c) => RecordTonemapPass(api, c, imageIndex),
+            ["Tonemap"]  = (api, c) => RecordTonemapPass(api, c),
         };
 
         VulkanGraphExecutor.Execute(gpu, cb, resolvedPasses, passRecorders, resourceImages);
@@ -290,7 +299,7 @@ public sealed class DeferredPipeline : IPipeline
             Framebuffer: gbufferFramebuffer,
             Pipeline: gbufferPipeline,
             PipelineLayout: gbufferPipelineLayout,
-            Extent: gpu.SwapchainExtent);
+            Extent: viewportExtent);
         var scene = currentScene!;
         UploadCameraForCurrentFrame(scene.Camera);
         GBufferPass.Record(api, cb, resources, scene.Drawables, assets, assets, materials,
@@ -318,7 +327,7 @@ public sealed class DeferredPipeline : IPipeline
             PipelineLayout: lightingPipelineLayout,
             GBufferDescriptorSet: gbufferDescSets[gpu.CurrentFrame],
             LightDescriptorSet: lightDescSets[gpu.CurrentFrame],
-            Extent: gpu.SwapchainExtent);
+            Extent: viewportExtent);
         var pc = DeferredLighting.BuildPushConstants(
             scene.Camera, lightCount, ui.Shading, ui.Ambient, ui.LightingOnly, (int)ui.Background);
         DeferredLighting.Record(api, cb, resources, pc, ui.ClearColor);
@@ -334,7 +343,7 @@ public sealed class DeferredPipeline : IPipeline
         return LightPacking.PackInto(scene.Lights.AsSpan(0, available), dst);
     }
 
-    void RecordTonemapPass(Vk api, CommandBuffer cb, uint imageIndex)
+    void RecordTonemapPass(Vk api, CommandBuffer cb)
     {
         timestamps.BeginPass(api, cb, "Tonemap");
         var ui = currentUi;
@@ -345,12 +354,12 @@ public sealed class DeferredPipeline : IPipeline
         if (ui.Viz == VisualizationMode.Final)
         {
             var resources = new TonemapPassResources(
-                RenderPass: tonemapRenderPass,
-                Framebuffer: swapchainFramebuffers[imageIndex],
+                RenderPass: viewportRenderPass,
+                Framebuffer: viewportFramebuffer,
                 Pipeline: tonemapPipeline,
                 PipelineLayout: tonemapPipelineLayout,
                 HdrSet: tonemapDescSets[gpu.CurrentFrame],
-                Extent: gpu.SwapchainExtent);
+                Extent: viewportExtent);
             TonemapPass.Record(api, cb, resources);
         }
         else
@@ -365,12 +374,12 @@ public sealed class DeferredPipeline : IPipeline
                 _ => tonemapDescSets[gpu.CurrentFrame],
             };
             var resources = new DebugVizPassResources(
-                RenderPass: tonemapRenderPass,
-                Framebuffer: swapchainFramebuffers[imageIndex],
+                RenderPass: viewportRenderPass,
+                Framebuffer: viewportFramebuffer,
                 Pipeline: debugVizPipeline,
                 PipelineLayout: debugVizPipelineLayout,
                 SourceSet: sourceSet,
-                Extent: gpu.SwapchainExtent);
+                Extent: viewportExtent);
             var pc = DebugVizPass.BuildPushConstants(ui.Viz == VisualizationMode.Depth, currentScene!.Camera);
             DebugVizPass.Record(api, cb, resources, pc);
         }
@@ -497,8 +506,8 @@ public sealed class DeferredPipeline : IPipeline
 
     unsafe void DestroyTransient()
     {
-        if (swapchainFramebuffers.Length > 0)
-            VulkanPipeline.DestroyFramebuffers(gpu, swapchainFramebuffers);
+        if (viewportFramebuffer.Handle != 0)
+            gpu.Vk.DestroyFramebuffer(gpu.Device, viewportFramebuffer, null);
         if (debugVizDescPool.Handle != 0)
             gpu.Vk.DestroyDescriptorPool(gpu.Device, debugVizDescPool, null);
         if (tonemapDescPool.Handle != 0)
@@ -519,7 +528,7 @@ public sealed class DeferredPipeline : IPipeline
             VulkanImage.DestroyOffscreen(gpu, gbufferNormImage, gbufferNormAlloc, gbufferNormView);
         if (gbufferPosView.Handle != 0)
             VulkanImage.DestroyOffscreen(gpu, gbufferPosImage, gbufferPosAlloc, gbufferPosView);
-        swapchainFramebuffers = [];
+        viewportFramebuffer = default;
         debugVizDescPool = default;
         tonemapDescPool = default;
         gbufferDescPool = default;
@@ -551,7 +560,7 @@ public sealed class DeferredPipeline : IPipeline
         gpu.Vk.DestroyPipelineLayout(gpu.Device, tonemapPipelineLayout, null);
         gpu.Vk.DestroyPipeline(gpu.Device, debugVizPipeline, null);
         gpu.Vk.DestroyPipelineLayout(gpu.Device, debugVizPipelineLayout, null);
-        gpu.Vk.DestroyRenderPass(gpu.Device, tonemapRenderPass, null);
+        gpu.Vk.DestroyRenderPass(gpu.Device, viewportRenderPass, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, gbufferDsLayout, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, lightStorageDsLayout, null);

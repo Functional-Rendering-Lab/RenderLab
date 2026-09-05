@@ -54,16 +54,20 @@ public interface IPipeline : IDisposable
     /// layouts). Called once at engine startup after <see cref="GpuState"/> is
     /// ready.
     /// </summary>
-    /// <param name="overlayRenderPass">The Application's pre-built overlay
-    /// render pass (LoadOp.Load over the swapchain) for ImGui.</param>
-    void Initialize(GpuState gpu, AssetRegistry assets, RenderPass overlayRenderPass);
+    void Initialize(GpuState gpu, AssetRegistry assets);
 
     /// <summary>
-    /// Recreate transient resources sized to the swapchain (offscreen images,
-    /// framebuffers, descriptor sets bound to those views). Called on startup
-    /// and on every swapchain resize.
+    /// Recreate transient resources sized to <paramref name="target"/> - offscreen images,
+    /// framebuffers, descriptor sets bound to those views - and hang the last pass's framebuffer
+    /// on the target's own view.
+    /// <para>
+    /// Called on startup and whenever the target changes, which is a viewport resize rather than
+    /// a window resize: dragging the boundary between the viewport and the panel beside it is a
+    /// new size to render at, and dragging the window's edge is only one because the viewport
+    /// inside it moved too. The device is idle when this is called.
+    /// </para>
     /// </summary>
-    void RecreateTransient(GpuState gpu);
+    void RecreateTransient(GpuState gpu, RenderTarget target);
 
     /// <summary>
     /// Read previous-frame GPU timestamps before <c>BeginFrame</c>. No-op for
@@ -74,8 +78,13 @@ public interface IPipeline : IDisposable
     /// <summary>
     /// Record one frame's draw commands into <paramref name="cb"/>. The command
     /// buffer is in the recording state. The Application handles
-    /// BeginFrame/EndFrame and the editor's overlay pass after this returns;
-    /// pipelines must leave the swapchain image in <c>PresentSrcKhr</c>.
+    /// BeginFrame/EndFrame and the editor's overlay pass after this returns.
+    /// <para>
+    /// What comes out is <paramref name="target"/>, left readable by a shader, because the editor
+    /// draws it as a picture. A pipeline no longer touches the swapchain at all - it does not know
+    /// which image is being presented, and cannot: the frame it renders is the size of a panel,
+    /// not the size of the window.
+    /// </para>
     /// <para>
     /// <paramref name="ui"/> is always supplied. It used to be null for pipelines
     /// that consume no scene, back when such a pipeline kept its own camera and
@@ -83,7 +92,7 @@ public interface IPipeline : IDisposable
     /// now, so every pipeline reads them from the same place.
     /// </para>
     /// </summary>
-    void RecordFrame(GpuState gpu, CommandBuffer cb, Scene? scene, UiModel ui, double deltaSeconds, uint imageIndex);
+    void RecordFrame(GpuState gpu, CommandBuffer cb, Scene? scene, UiModel ui, double deltaSeconds, RenderTarget target);
 
     /// <summary>
     /// Per-frame snapshot of pipeline-internal stats (GPU timestamps, the

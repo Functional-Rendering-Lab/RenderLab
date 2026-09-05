@@ -33,7 +33,19 @@ public static class VulkanPipeline
         }
     }
 
-    public static unsafe RenderPass CreateRenderPass(GpuState state)
+    /// <summary>
+    /// The pass a pipeline's last stage draws through: the one that produces the picture the
+    /// editor shows. It used to end in <c>PresentSrcKhr</c>, because it used to write the
+    /// swapchain image directly; it ends in <c>ShaderReadOnlyOptimal</c> now, because what it
+    /// writes is a <see cref="ViewportTarget"/> the interface then samples.
+    /// <para>
+    /// The second dependency is the one that is easy to leave out and impossible to see missing.
+    /// The implicit end-of-pass dependency orders nothing - it is bottom-of-pipe to top-of-pipe
+    /// with no access flags - so without this the overlay pass's fragment shader may read the
+    /// viewport image before the colour writes that filled it are visible to it.
+    /// </para>
+    /// </summary>
+    public static unsafe RenderPass CreateViewportRenderPass(GpuState state)
     {
         var colorAttachment = new AttachmentDescription
         {
@@ -44,7 +56,7 @@ public static class VulkanPipeline
             StencilLoadOp = AttachmentLoadOp.DontCare,
             StencilStoreOp = AttachmentStoreOp.DontCare,
             InitialLayout = ImageLayout.Undefined,
-            FinalLayout = ImageLayout.PresentSrcKhr,
+            FinalLayout = ImageLayout.ShaderReadOnlyOptimal,
         };
 
         var colorRef = new AttachmentReference
@@ -60,7 +72,8 @@ public static class VulkanPipeline
             PColorAttachments = &colorRef,
         };
 
-        var dependency = new SubpassDependency
+        var dependencies = stackalloc SubpassDependency[2];
+        dependencies[0] = new SubpassDependency
         {
             SrcSubpass = Vk.SubpassExternal,
             DstSubpass = 0,
@@ -70,6 +83,17 @@ public static class VulkanPipeline
             DstAccessMask = AccessFlags.ColorAttachmentWriteBit,
         };
 
+        // And out again, for the interface that samples what this wrote.
+        dependencies[1] = new SubpassDependency
+        {
+            SrcSubpass = 0,
+            DstSubpass = Vk.SubpassExternal,
+            SrcStageMask = PipelineStageFlags.ColorAttachmentOutputBit,
+            SrcAccessMask = AccessFlags.ColorAttachmentWriteBit,
+            DstStageMask = PipelineStageFlags.FragmentShaderBit,
+            DstAccessMask = AccessFlags.ShaderReadBit,
+        };
+
         var renderPassInfo = new RenderPassCreateInfo
         {
             SType = StructureType.RenderPassCreateInfo,
@@ -77,12 +101,12 @@ public static class VulkanPipeline
             PAttachments = &colorAttachment,
             SubpassCount = 1,
             PSubpasses = &subpass,
-            DependencyCount = 1,
-            PDependencies = &dependency,
+            DependencyCount = 2,
+            PDependencies = dependencies,
         };
 
         if (state.Vk.CreateRenderPass(state.Device, &renderPassInfo, null, out var renderPass) != Result.Success)
-            throw new InvalidOperationException("Failed to create render pass.");
+            throw new InvalidOperationException("Failed to create viewport render pass.");
 
         return renderPass;
     }
@@ -919,17 +943,27 @@ public static class VulkanPipeline
 
     // ─── M3: Swapchain render pass with LoadOp.Load (for ImGui overlay) ──
 
+    /// <summary>
+    /// The pass the interface is recorded into, and the only thing that writes the swapchain now.
+    /// <para>
+    /// It loaded what was already there when the scene was rendered into the same image and the
+    /// editor was composited over it. Nothing is already there any more - the scene goes into a
+    /// <see cref="ViewportTarget"/> the interface draws as a picture - so this clears, and an
+    /// undefined initial layout says the previous contents are not wanted, which is also the
+    /// cheapest thing to tell a tiled GPU.
+    /// </para>
+    /// </summary>
     public static unsafe RenderPass CreateOverlayRenderPass(GpuState state)
     {
         var colorAttachment = new AttachmentDescription
         {
             Format = state.SwapchainFormat,
             Samples = SampleCountFlags.Count1Bit,
-            LoadOp = AttachmentLoadOp.Load,
+            LoadOp = AttachmentLoadOp.Clear,
             StoreOp = AttachmentStoreOp.Store,
             StencilLoadOp = AttachmentLoadOp.DontCare,
             StencilStoreOp = AttachmentStoreOp.DontCare,
-            InitialLayout = ImageLayout.PresentSrcKhr,
+            InitialLayout = ImageLayout.Undefined,
             FinalLayout = ImageLayout.PresentSrcKhr,
         };
 

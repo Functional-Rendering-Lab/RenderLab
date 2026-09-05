@@ -10,39 +10,53 @@ namespace RenderLab.Editor;
 /// <para>
 /// This is the same three-column arrangement the dock ini has been saving - Visualization,
 /// Lighting, Scene and Project on the left; Inspector and Asset Browser beside them; the scene
-/// showing through the middle; Render Graph and GPU Timings on the right - with the docking
+/// in the middle; Render Graph and GPU Timings on the right - with the docking
 /// machinery that produced it left behind. Nothing here is tabbed and nothing here is
 /// rearrangeable, because nothing in the layout the tool actually settled on was either. What a
 /// boundary between two panels still does is move, and that costs no code: a panel's size is a
 /// share of its parent, so a window resize is arithmetic and a drag is a new share.
 /// </para>
 /// <para>
-/// The spec named every panel in its final place from the first day of the migration, and a
-/// panel that had not moved yet left a hole exactly where it would go, which Dear ImGui kept
-/// drawing into. Every panel has moved, so the set that said which was which is gone; what is
-/// left of that machinery is the hole itself, which was never scaffolding - the viewport is one.
+/// Two of the leaves are not panels. The viewport is one: the scene arrives there as a picture,
+/// so it is a leaf with no header and an image filling it. An emptied column is the other -
+/// hiding every panel in one leaves a region with nothing to show, and it is drawn as the shell's
+/// own ground rather than as a panel with nothing in it.
 /// </para>
 /// </summary>
 public static class EditorLayout
 {
     /// <summary>
-    /// Every hole is the same view, because a hole is not an interface - it is the part of the
-    /// window the shell does not draw. Two of them side by side are one hole for the same reason:
-    /// a boundary between two regions the shell does not own is a splitter that would move
-    /// nothing and still take the mouse.
+    /// Where the scene is shown. It used to be a hole - a rectangle the shell left unpainted so
+    /// that the frame the renderer had already drawn across the whole window showed through it -
+    /// and it is a picture now: the renderer draws into an image the size of this leaf, and this
+    /// leaf draws that image. What that buys is a scene the shape of the panel it is looked at
+    /// through, and a shell that is free to put something in front of it.
+    /// </summary>
+    public static readonly ViewId Viewport = new("viewport");
+
+    /// <summary>
+    /// A column with nothing left in it. Hiding every panel in one has to leave something, and
+    /// what it leaves is the shell's ground: a header over an empty body would offer to close a
+    /// panel that is not there, and the alternative - collapsing the column away - is a layout
+    /// that reflows when a panel is hidden and cannot put it back where it was.
     /// <para>
-    /// One hole is in the spec - the viewport, which the renderer has already drawn into by the
-    /// time the shell records. The others are made: a column whose panels are all hidden is a
-    /// hole, and it joins the viewport beside it.
+    /// Two of them side by side are one region, and one beside the viewport joins it: a boundary
+    /// between two regions with nothing in them is a splitter that would move nothing and still
+    /// take the mouse.
     /// </para>
     /// </summary>
-    public static readonly ViewId Hole = new("hole");
+    public static readonly ViewId Empty = new("empty");
 
     /// <summary>A panel's share of the column it is in. Shares are relative; only their ratio matters.</summary>
     private readonly record struct PanelSpec(PanelId Panel, float Share);
 
-    /// <summary>A column of panels, and its share of the window's width. An empty column is the viewport.</summary>
-    private readonly record struct ColumnSpec(float Width, PanelSpec[] Panels);
+    /// <summary>
+    /// A column of panels, and its share of the window's width. <c>Viewport</c> names the one
+    /// column that holds the scene rather than panels, which the spec has to say: a column with
+    /// no panels in it is otherwise indistinguishable from one whose panels are all hidden, and
+    /// those two are not the same thing to draw.
+    /// </summary>
+    private readonly record struct ColumnSpec(float Width, PanelSpec[] Panels, bool Viewport = false);
 
     /// <summary>
     /// The layout. The widths are the pixel sizes the dock layout settled on, kept as weights
@@ -73,9 +87,9 @@ public static class EditorLayout
             new(PanelId.AssetBrowser, 4.5f),
         ]),
 
-        // The viewport: no panels, because the scene is not one. It is the hole the layout
-        // leaves, and the application has already drawn into it by the time the shell records.
-        new(2171f, []),
+        // The viewport: no panels, because the scene is not one. What goes here is the image the
+        // renderer drew, at exactly the size this column came out.
+        new(2171f, [], Viewport: true),
 
         new(709f,
         [
@@ -90,15 +104,19 @@ public static class EditorLayout
     /// <summary>The view a panel instantiates. One per <see cref="PanelId"/>, and stable.</summary>
     public static ViewId ViewOf(PanelId id) => Views[(int)id];
 
-    /// <summary>The panel a view belongs to, or None for <see cref="Hole"/>.</summary>
+    /// <summary>The panel a view belongs to, or None for a view that is not one.</summary>
     public static Optional<PanelId> PanelOf(ViewId view)
     {
         int index = Array.IndexOf(Views, view);
         return index < 0 ? Optional<PanelId>.None : Optional.Some((PanelId)index);
     }
 
-    /// <summary>Which views are holes rather than panels. Handed to <c>WidgetKit.PanelArea</c>.</summary>
-    public static bool IsHole(ViewId view) => view == Hole;
+    /// <summary>
+    /// Which views get no panel chrome. Handed to <c>WidgetKit.PanelArea</c> as its passthrough
+    /// predicate: neither the viewport nor an emptied column has a title to put in a header or a
+    /// panel to offer to close.
+    /// </summary>
+    public static bool IsChromeless(ViewId view) => view == Viewport || view == Empty;
 
     /// <summary>What a panel is called in its header. The names the tool has always used.</summary>
     public static string TitleOf(ViewId view) => PanelOf(view).Match(
@@ -198,11 +216,14 @@ public static class EditorLayout
         return shares;
     }
 
-    /// <summary>One leaf of the tree as it will be built: a panel's view, or a hole.</summary>
+    /// <summary>One leaf of the tree as it will be built: a panel's view, or a chromeless one.</summary>
     private readonly record struct LeafSpec(ViewId View, float Share);
 
-    /// <summary>A column as it will be built. No leaves at all means the whole column is a hole.</summary>
-    private readonly record struct Slot(float Width, LeafSpec[] Leaves);
+    /// <summary>
+    /// A column as it will be built. No leaves at all means the column shows no panels, and
+    /// <c>Viewport</c> says whether the scene goes there or nothing does.
+    /// </summary>
+    private readonly record struct Slot(float Width, LeafSpec[] Leaves, bool Viewport);
 
     private static List<Slot> Slots(AppUiModel app)
     {
@@ -214,17 +235,22 @@ public static class EditorLayout
 
             if (leaves.Length > 0)
             {
-                slots.Add(new Slot(column.Width, leaves));
+                slots.Add(new Slot(column.Width, leaves, column.Viewport));
                 continue;
             }
 
-            // A column with nothing showing in it is a hole, and a hole beside a hole is one
-            // hole: the viewport and any column emptied by hiding its panels are one region as
-            // far as this layout is concerned, and a boundary drawn inside it would move nothing.
+            // A column with nothing showing in it merges into the one beside it if that one has
+            // nothing showing either: a boundary between two regions with no panels in them would
+            // move nothing and still take the mouse. Merging with the viewport hands the viewport
+            // the space, which is what emptying the column next to it ought to do.
             if (slots.Count > 0 && slots[^1].Leaves.Length == 0)
-                slots[^1] = slots[^1] with { Width = slots[^1].Width + column.Width };
+                slots[^1] = slots[^1] with
+                {
+                    Width = slots[^1].Width + column.Width,
+                    Viewport = slots[^1].Viewport || column.Viewport,
+                };
             else
-                slots.Add(new Slot(column.Width, []));
+                slots.Add(new Slot(column.Width, [], column.Viewport));
         }
 
         return slots;
@@ -243,5 +269,7 @@ public static class EditorLayout
     ];
 
     private static ViewId FirstView(Slot slot) =>
-        slot.Leaves.Length == 0 ? Hole : slot.Leaves[0].View;
+        slot.Leaves.Length > 0 ? slot.Leaves[0].View
+        : slot.Viewport ? Viewport
+        : Empty;
 }

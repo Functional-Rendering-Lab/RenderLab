@@ -51,6 +51,19 @@ public sealed class Application : IDisposable
 
     RenderPass overlayRenderPass;
     Framebuffer[] overlayFramebuffers = [];
+
+    /// <summary>
+    /// The image the pipeline renders the scene into, sized to the viewport panel. Replaced
+    /// whenever that panel changes size, which is what <see cref="ResizeViewport"/> is for.
+    /// </summary>
+    ViewportTarget viewport = null!;
+
+    /// <summary>
+    /// Physical pixels per logical pixel. The shell is built in logical ones and the scene is
+    /// rendered in physical ones, so this is what turns the viewport's rectangle into the size of
+    /// the image behind it. Read once, at startup, for the reason <c>PtahUi</c> gives.
+    /// </summary>
+    float displayScale = 1f;
     IPipeline pipeline = null!;
     ShaderHotReload hotReload = null!;
     ProjectManifest manifest = null!;
@@ -152,8 +165,8 @@ public sealed class Application : IDisposable
         sources = SceneAssetSources.Empty;
         ui = UiModel.Default;
         activeScenePath = "";
-        pipeline.Initialize(gpu!, assets, overlayRenderPass);
-        pipeline.RecreateTransient(gpu!);
+        pipeline.Initialize(gpu!, assets);
+        pipeline.RecreateTransient(gpu!, viewport.AsRenderTarget);
 
         // The Visualization panel offers what this pipeline can resolve, so the model has to name
         // one of those or the panel would show nothing chosen while the screen showed something.
@@ -253,7 +266,7 @@ public sealed class Application : IDisposable
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
         // Physical over logical: the swapchain is sized in the monitor's real pixels while the
         // shell is built in logical ones, so their ratio is the scale the atlas has to bake at.
-        float displayScale = window.Width > 0
+        displayScale = window.Width > 0
             ? gpu.SwapchainExtent.Width / (float)window.Width
             : 1f;
 
@@ -261,7 +274,45 @@ public sealed class Application : IDisposable
             ok: shell => shell,
             error: failure => throw new InvalidOperationException(
                 $"Failed to create the Ptah UI shell: {failure}"));
+
+        // A first target, so the pipeline has something to build framebuffers against before any
+        // frame has been built. The window's size is a guess at the viewport's; the first frame
+        // measures the panel and replaces this with the right one.
+        viewport = ViewportTarget.Create(gpu, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height);
+        ShowViewport();
         hotReload = new ShaderHotReload(msg => Console.WriteLine($"  shader: {msg}"));
+    }
+
+    /// <summary>Hands the current target to the editor as the picture its viewport draws.</summary>
+    void ShowViewport() =>
+        ptah.ShowScene(viewport.View, viewport.Sampler).Match(
+            ok: _ => _,
+            error: failure => throw new InvalidOperationException(
+                $"Failed to give the editor the viewport image: {failure}"));
+
+    /// <summary>
+    /// Makes the scene's image the size of the viewport panel, if it is not already.
+    /// <para>
+    /// Called between building the interface and recording the frame, so the size the panel came
+    /// out at this frame is the size the scene is rendered at this frame - no stretched frame
+    /// while a boundary is being dragged. It costs the device going idle, which is why
+    /// <see cref="ViewportTarget.Fits"/> is asked first: the answer is yes on all but a handful
+    /// of frames.
+    /// </para>
+    /// </summary>
+    void ResizeViewport(Ptah.Rect rect)
+    {
+        uint width = (uint)MathF.Max(1f, MathF.Round(rect.Width * displayScale));
+        uint height = (uint)MathF.Max(1f, MathF.Round(rect.Height * displayScale));
+
+        if (viewport.Fits(width, height))
+            return;
+
+        vk.DeviceWaitIdle(gpu.Device);
+        viewport.Dispose();
+        viewport = ViewportTarget.Create(gpu, width, height);
+        pipeline.RecreateTransient(gpu, viewport.AsRenderTarget);
+        ShowViewport();
     }
 
     void Loop()
@@ -314,9 +365,6 @@ public sealed class Application : IDisposable
             if (!lastIntent.WantCaptureMouse)
                 ui = ui with { Camera = FreeCameraController.Update(ui.Camera, cameraInput) };
 
-            float aspect = (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height;
-            Scene? scene = pipeline.ConsumesScenes ? SceneBuilder.BuildScene(ui, aspect) : null;
-
             // Nothing to feed an interface here any more. The shell reads the window's own
             // Silk.NET input context through Ptah's InputTracker, so this frame's mouse and
             // keyboard reach it without the loop copying them anywhere.
@@ -335,20 +383,28 @@ public sealed class Application : IDisposable
             var stats = pipeline.GetFrameStats(dt);
             var view = ptah.Frame(window.Width, window.Height, dt,
                 context => editor.Draw(context, app, ui, assets, assetLibrary, projectIndex,
-                    pipeline.SupportedVisualizations, stats, ptah.Cost));
+                    pipeline.SupportedVisualizations, stats, ptah.Cost, ptah.Scene));
 
             ApplyViewMessages(view, prevUi);
 
-            // ApplyViewMessages may have reloaded the scene (registry wiped, ui replaced with
-            // fresh ids). Rebuild the snapshot so drawables reference live assets, not removed
-            // ones.
-            if (pipeline.ConsumesScenes)
-                scene = SceneBuilder.BuildScene(ui, aspect);
+            // The interface has just said how big the viewport is, which is the size the scene
+            // has to be rendered at. Doing it here rather than on a window resize is the point of
+            // the arrangement: dragging the boundary between the viewport and the panel beside it
+            // is a resize of the scene, and dragging the window's edge is only one because the
+            // viewport inside it moved too.
+            editor.ViewportRect.IfSome(ResizeViewport);
 
-            // Pipeline records its passes (must leave swapchain in PresentSrcKhr).
-            pipeline.RecordFrame(gpu, cmd, scene, ui, dt, imageIndex);
+            // The viewport's aspect, not the window's, and built after the resize so the two
+            // agree. ApplyViewMessages may also have reloaded the scene - registry wiped, ui
+            // replaced with fresh ids - so this is the first point at which the snapshot is
+            // certain to reference live assets.
+            float aspect = (float)viewport.Extent.Width / viewport.Extent.Height;
+            Scene? scene = pipeline.ConsumesScenes ? SceneBuilder.BuildScene(ui, aspect) : null;
 
-            // And the interface goes over the top of it, in an overlay pass of its own.
+            // The pipeline draws the scene into the viewport's image, and leaves it readable.
+            pipeline.RecordFrame(gpu, cmd, scene, ui, dt, viewport.AsRenderTarget);
+
+            // And the interface draws that image, in the one pass that touches the swapchain.
             ptah.Record(cmd, overlayFramebuffers[imageIndex], gpu.SwapchainExtent);
 
             if (!VulkanFrame.EndFrame(gpu, imageIndex))
@@ -1227,7 +1283,10 @@ public sealed class Application : IDisposable
         VulkanSwapchain.Recreate(gpu, (uint)window.Width, (uint)window.Height);
         VulkanDevice.CreateRenderFinishedSemaphores(gpu);
         overlayFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, overlayRenderPass);
-        pipeline.RecreateTransient(gpu);
+
+        // Nothing of the pipeline's is sized to the swapchain any more. The viewport panel inside
+        // the new window will come out a different size, and the frame that measures it is the
+        // frame that resizes the scene's image.
     }
 
     public unsafe void Dispose()
@@ -1237,6 +1296,7 @@ public sealed class Application : IDisposable
         hotReload?.Dispose();
         pipeline?.Dispose();
         ptah?.Dispose();
+        viewport?.Dispose();
         if (overlayFramebuffers.Length > 0)
             VulkanPipeline.DestroyFramebuffers(gpu, overlayFramebuffers);
         if (overlayRenderPass.Handle != 0)

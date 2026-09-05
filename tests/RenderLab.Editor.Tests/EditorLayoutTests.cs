@@ -8,14 +8,13 @@ namespace RenderLab.Editor.Tests;
 /// The shell layout. The tree is derived from the spec every time the set of visible panels
 /// changes, and what has to survive that derivation is the rules nobody can check by looking at
 /// the window: a hidden panel gives its space back rather than keeping a place nothing draws in,
-/// a column left with nothing showing becomes a hole, and holes beside each other are one hole -
-/// because a boundary between two regions the shell does not own is a splitter that moves nothing
-/// and still takes the mouse.
+/// a column left with nothing showing becomes an empty region, and empty regions beside each
+/// other are one region - because a boundary between two regions with no panels in them is a
+/// splitter that moves nothing and still takes the mouse.
 /// <para>
-/// These used to be about the migration - a panel Dear ImGui still drew left a hole where it
-/// would go, and the shapes here moved as panels ported. Every panel has moved, so what is left
-/// is the part that was never temporary: the viewport is a hole, and so is a column somebody has
-/// emptied.
+/// Which of them the scene goes in is the spec's to say, and the reason it has to say: one column
+/// is the viewport and the rest are columns somebody emptied, and they look identical to
+/// everything downstream of here until the spec distinguishes them.
 /// </para>
 /// </summary>
 public class EditorLayoutTests
@@ -47,8 +46,8 @@ public class EditorLayoutTests
     {
         PanelTree tree = EditorLayout.Build(Everything);
 
-        // The last two panels to move across, and the last hole in the layout that was not the
-        // viewport: Render Graph was drawn through one of these until Phase 4.
+        // The last two panels to move across: Render Graph was drawn by Dear ImGui through a gap
+        // in this column until Phase 4.
         Panel right = tree.Root.Children[3];
         Assert.Equal(2, right.Children.Count);
         Assert.Equal(EditorLayout.ViewOf(PanelId.RenderGraph), ViewOf(right.Children[0]));
@@ -56,7 +55,7 @@ public class EditorLayoutTests
     }
 
     [Fact]
-    public void TheColumnsThatArePtahsHoldNoHolesAtAll()
+    public void TheColumnsOfPanelsHoldNothingButPanels()
     {
         PanelTree tree = EditorLayout.Build(Everything);
 
@@ -85,11 +84,11 @@ public class EditorLayoutTests
     }
 
     [Fact]
-    public void AColumnEmptiedByHidingItsPanelsJoinsTheHoleBesideIt()
+    public void AColumnEmptiedBesideTheViewportBecomesPartOfIt()
     {
-        // Untick both of the right column's panels and the column has nothing to draw, so it is
-        // a hole - and a hole beside the viewport is the viewport, because a boundary drawn
-        // inside it would move nothing.
+        // Untick both of the right column's panels and the column has nothing to draw, so it
+        // merges with the region beside it - and that region is the viewport, so the space goes
+        // to the scene rather than to a gap nothing fills.
         AppUiModel emptied = Everything
             .WithPanelVisible(PanelId.GpuTimings, false)
             .WithPanelVisible(PanelId.RenderGraph, false);
@@ -97,14 +96,33 @@ public class EditorLayoutTests
         PanelTree tree = EditorLayout.Build(emptied);
 
         Assert.Equal(3, tree.Root.Children.Count);
-        Assert.Equal(EditorLayout.Hole, ViewOf(tree.Root.Children[2]));
+        Assert.Equal(EditorLayout.Viewport, ViewOf(tree.Root.Children[2]));
 
-        // 2171 + 709 of 3834: a merged hole takes the width of every column it swallowed.
+        // 2171 + 709 of 3834: a merged region takes the width of every column it swallowed.
         Assert.Equal(0.751d, tree.Root.Children[2].PercentOfParent, 3);
     }
 
     [Fact]
-    public void WithNothingOfItsOwnToDrawTheShellIsOneHoleAndNoBoundaries()
+    public void AColumnEmptiedAwayFromTheViewportIsEmptyAndNotTheScene()
+    {
+        // The far left column, emptied, with the one beside it still full: it does not reach the
+        // viewport, so it is a region of the shell's own ground. Drawing the scene there would
+        // put a second copy of it on screen.
+        AppUiModel emptied = Everything
+            .WithPanelVisible(PanelId.Visualization, false)
+            .WithPanelVisible(PanelId.Lighting, false)
+            .WithPanelVisible(PanelId.Scene, false)
+            .WithPanelVisible(PanelId.Project, false);
+
+        PanelTree tree = EditorLayout.Build(emptied);
+
+        Assert.Equal(4, tree.Root.Children.Count);
+        Assert.Equal(EditorLayout.Empty, ViewOf(tree.Root.Children[0]));
+        Assert.Equal(EditorLayout.Viewport, ViewOf(tree.Root.Children[2]));
+    }
+
+    [Fact]
+    public void WithNothingOfItsOwnToDrawTheShellIsAllViewportAndNoBoundaries()
     {
         AppUiModel hidden = Everything;
         foreach (PanelId id in Enum.GetValues<PanelId>())
@@ -112,8 +130,10 @@ public class EditorLayoutTests
 
         PanelTree tree = EditorLayout.Build(hidden);
 
+        // Every column merges into one, and the one carries the viewport, because the viewport is
+        // among the columns it swallowed. Hiding every panel is a way to look at the scene.
         Assert.True(tree.Root.IsLeaf);
-        Assert.Equal(EditorLayout.Hole, ViewOf(tree.Root));
+        Assert.Equal(EditorLayout.Viewport, ViewOf(tree.Root));
     }
 
     [Fact]

@@ -1,6 +1,7 @@
 using System.Collections.Immutable;
 using System.Numerics;
 using Ptah;
+using Ptah.Functional;
 using RenderLab.Assets;
 using RenderLab.Graph;
 using RenderLab.Project;
@@ -146,11 +147,21 @@ public class EditorFrameTests
 
         internal FrameStats Stats = EditorFrameTests.Stats;
 
+        /// <summary>
+        /// The picture the viewport leaf draws. A registered id is only a number, so a fixture
+        /// with no backend behind it can still say the scene is there - which is what makes the
+        /// difference between the viewport drawing an image and drawing nothing testable.
+        /// </summary>
+        internal ImageId Scene = new(1);
+
+        /// <summary>Where the viewport came out, as the application reads it after a frame.</summary>
+        internal Optional<Rect> ViewportRect => _view.ViewportRect;
+
         internal UiViewResult Step(UIInput input)
         {
             Ui.BeginBuild(1f / 60f, new Rect(0f, 0f, 1600f, 900f), input);
             UiViewResult result = _view.Draw(Ui, App, Model, _catalog, Library, Project,
-                Visualizations, Stats, default);
+                Visualizations, Stats, default, Scene);
             Ui.EndBuild();
             return result;
         }
@@ -453,13 +464,58 @@ public class EditorFrameTests
     // ---- The shell around them ---------------------------------------------------
 
     [Fact]
-    public void ThePointerOverAPanelBelongsToTheShellAndOverAHoleDoesNot()
+    public void TheSceneIsDrawnInTheViewportAtTheRectangleTheApplicationRendersTo()
+    {
+        var editor = new Driver();
+        editor.Settle();
+
+        UIBox picture = Assert.Single(editor.Boxes(), box => !box.Image.IsNone);
+        Assert.Equal(editor.Scene, picture.Image);
+
+        // The same rectangle, exactly. What the application renders into is what it reads back
+        // here, so a picture inset inside its leaf would be a scene rendered at one size and
+        // shown at another - which is the bug the whole arrangement exists to make impossible.
+        Rect viewport = editor.ViewportRect.ValueOr(default(Rect));
+        Assert.Equal(viewport, picture.Rect);
+        Assert.True(viewport.Width > 0f && viewport.Height > 0f);
+    }
+
+    [Fact]
+    public void AColumnEmptiedAwayFromTheViewportShowsNoSceneOfItsOwn()
+    {
+        // The left column, emptied, with the one beside it still full. It has nothing to draw and
+        // it does not reach the viewport, so it is the shell's ground: a second picture here
+        // would be a second copy of the scene, at a second aspect ratio.
+        var editor = new Driver();
+        foreach (PanelId id in new[]
+                 { PanelId.Visualization, PanelId.Lighting, PanelId.Scene, PanelId.Project })
+            editor.App = editor.App.WithPanelVisible(id, false);
+
+        editor.Settle();
+
+        Assert.Single(editor.Boxes(), box => !box.Image.IsNone);
+    }
+
+    [Fact]
+    public void TheViewportReportsItsRectangleBeforeThereIsAnyPictureToShowInIt()
+    {
+        // The editor's first frame. Nothing has been rendered yet and nothing can have been: the
+        // size to render at is what this frame is being built to find out.
+        var editor = new Driver { Scene = ImageId.None };
+        editor.Settle();
+
+        Assert.DoesNotContain(editor.Boxes(), box => !box.Image.IsNone);
+        Assert.True(editor.ViewportRect.Match(some: rect => rect.Width > 0f, none: () => false));
+    }
+
+    [Fact]
+    public void ThePointerOverAPanelBelongsToTheShellAndOverTheViewportDoesNot()
     {
         var editor = new Driver { Model = Model(new Selection.Camera()) };
 
         // The Inspector's column is the second of four, so a point inside it is over a panel and
-        // a point far to the right is over the viewport - the hole the scene shows through, and
-        // the only hole left that is not somebody else's window.
+        // a point far to the right is over the viewport - the one region of the window where a
+        // drag is the camera's rather than the interface's.
         UiIntent Over(Vector2 at)
         {
             UiViewResult result = default!;

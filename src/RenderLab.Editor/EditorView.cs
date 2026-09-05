@@ -24,12 +24,16 @@ namespace RenderLab.Editor;
 public sealed class EditorView
 {
     /// <summary>
-    /// The boxes the layout left holes in, this frame. What the pointer is over is the whole of
-    /// <see cref="UiIntent.WantCaptureMouse"/>, and a hole is the one region of the window the
-    /// shell does not want it: the scene is under one, and the panels that have not been ported
-    /// yet are drawn over the others.
+    /// The box the scene was drawn in, this frame. Two things read it: the mouse, because the
+    /// viewport is the one region of the window the shell does not want the pointer, and the
+    /// application, because the size of this box is the size the next frame has to be rendered at.
+    /// <para>
+    /// It is the box rather than its rectangle because a rectangle is only true after the layout
+    /// has run, which is after the build this is filled in during. Reading
+    /// <see cref="ViewportRect"/> once the frame is built gets this frame's answer.
+    /// </para>
     /// </summary>
-    private readonly List<UIBox> _holes = [];
+    private Optional<UIBox> _viewport = Optional<UIBox>.None;
 
     /// <summary>
     /// Where an open drop-down, colour picker, expanded node or half-typed dialog lives. See
@@ -40,18 +44,31 @@ public sealed class EditorView
     private PanelTree _tree;
     private int _layout;
 
+    /// <summary>
+    /// Where the scene goes, in logical pixels, as of the frame just built. None while no layout
+    /// shows a viewport at all - every column full of panels, which the spec does not currently
+    /// allow but the tree would happily describe.
+    /// </summary>
+    public Optional<Rect> ViewportRect => _viewport.Map(box => box.Rect);
+
     public EditorView()
     {
-        // Starts holding a tree that is all hole, so the first frame's live set is a change like
-        // any other and there is one codepath that ever builds a tree.
+        // Starts holding a tree with no panels in it at all, so the first frame's live set is a
+        // change like any other and there is one codepath that ever builds a tree.
         var hidden = AppUiModel.Default with { VisiblePanels = ImmutableHashSet<PanelId>.Empty };
         _layout = EditorLayout.LayoutMask(hidden);
         _tree = EditorLayout.Build(hidden);
     }
 
+    /// <param name="scene">
+    /// The picture the renderer drew last, which the viewport leaf shows. <c>ImageId.None</c>
+    /// draws nothing, which is what the first frame has - the size to render at is not known until
+    /// this build has said how big the viewport is.
+    /// </param>
     public UiViewResult Draw(UIContext ui, AppUiModel app, UiModel model,
         IAssetCatalog catalog, AssetLibrary library, ProjectAssetIndex project,
-        ImmutableArray<VisualizationMode> visualizations, FrameStats stats, UiCost cost)
+        ImmutableArray<VisualizationMode> visualizations, FrameStats stats, UiCost cost,
+        ImageId scene)
     {
         int layout = EditorLayout.LayoutMask(app);
         if (layout != _layout)
@@ -62,7 +79,7 @@ public sealed class EditorView
 
         var appMessages = new List<AppUiMsg>();
         var messages = new List<UiMsg>();
-        _holes.Clear();
+        _viewport = Optional<UIBox>.None;
 
         // The palette is read off the model each frame rather than held, so switching it is one
         // more message the reducer folds and no state of the view's own. Everything below asks
@@ -75,24 +92,20 @@ public sealed class EditorView
         // existed only so two layouts drawn over each other agreed about where the workspace
         // began, and there is one layout again.
         //
-        // It paints nothing. Everything in here that is meant to be seen paints itself - the bar
-        // its chrome, a panel its surface - and the one region that must stay clear is the
-        // viewport, which the renderer has already drawn into by the time the shell records. A
-        // background on this box is a background over the scene.
-        using (w.Panel("shell", Color.Transparent, UISize.Percent(1f), UISize.Percent(1f), Axis2.Y))
+        // It paints the ground. It used to paint nothing, because the shell was composited over a
+        // frame the renderer had already drawn across the whole window and any background here
+        // would have been a background over the scene. The scene is a picture inside a leaf now,
+        // so the window is the shell's, and what is behind a column with no panels in it is this.
+        using (w.Panel("shell", theme.Chrome, UISize.Percent(1f), UISize.Percent(1f), Axis2.Y))
         {
             EditorMenuBar.Draw(w, _widgets, app, appMessages.Add);
             w.Separator();
 
-            // Transparent chrome, because this is composited over a frame the renderer has
-            // already drawn: a hole in a leaf shows nothing through if the split above it is
-            // painting over the same rectangle.
             // Close and nothing else on a header: this layout is authored in code, and a split
             // made with the mouse would have nowhere to be authored back to.
             w.PanelArea(_tree, EditorLayout.TitleOf, BuildLeaf,
-                    Optional.Some<Func<ViewId, bool>>(EditorLayout.IsHole),
-                    Optional.Some(Color.Transparent),
-                    Optional.Some(PanelHeaderButtons.Close))
+                    Optional.Some<Func<ViewId, bool>>(EditorLayout.IsChromeless),
+                    buttons: Optional.Some(PanelHeaderButtons.Close))
                 .IfSome(Requested);
         }
 
@@ -107,15 +120,25 @@ public sealed class EditorView
         _tree.ApplyCommands();
 
         return new UiViewResult(appMessages, messages,
-            new UiIntent(WantCaptureMouse: !OverHole(ui), WantCaptureKeyboard: ui.TextInputFocused));
+            new UiIntent(WantCaptureMouse: !OverViewport(ui), WantCaptureKeyboard: ui.TextInputFocused));
 
         void BuildLeaf(Panel panel, ViewId view)
         {
-            if (EditorLayout.IsHole(view))
+            if (view == EditorLayout.Viewport)
             {
-                _holes.Add(ui.TopParent);
+                // The leaf rather than the picture inside it, because the leaf is the box that
+                // takes the pointer - a picture is not clickable, and the camera is dragged in
+                // here. They are the same rectangle: the image fills the leaf exactly, and a
+                // margin between them would be a margin the renderer had rendered pixels for and
+                // the shell then covered up.
+                _viewport = Optional.Some(ui.TopParent);
+                w.Image("viewport", scene, UISize.Percent(1f), UISize.Percent(1f));
                 return;
             }
+
+            // An emptied column shows the shell's ground, which the shell has already painted.
+            if (view == EditorLayout.Empty)
+                return;
 
             EditorLayout.PanelOf(view).IfSome(Body);
         }
@@ -177,12 +200,12 @@ public sealed class EditorView
         }
     }
 
-    private bool OverHole(UIContext ui)
-    {
-        foreach (UIBox hole in _holes)
-            if (ui.ContainsMouse(hole))
-                return true;
-
-        return false;
-    }
+    /// <summary>
+    /// Whether the pointer is over the scene rather than over the interface. It is the whole of
+    /// <see cref="UiIntent.WantCaptureMouse"/>, inverted: everywhere else in the window belongs to
+    /// a panel, including a column emptied of them, so a drag started there is the editor's and not
+    /// the camera's.
+    /// </summary>
+    private bool OverViewport(UIContext ui) =>
+        _viewport.Match(some: ui.ContainsMouse, none: () => false);
 }

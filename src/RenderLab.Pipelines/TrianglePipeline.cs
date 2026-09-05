@@ -29,7 +29,7 @@ public sealed class TrianglePipeline : IPipeline
     public bool ConsumesScenes => false;
 
     /// <summary>
-    /// None. It draws one hard-coded triangle straight to the swapchain: there are no G-buffer
+    /// None. It draws one hard-coded triangle into the viewport: there are no G-buffer
     /// attachments to choose between, so the Visualization panel has nothing to offer for it.
     /// </summary>
     public ImmutableArray<VisualizationMode> SupportedVisualizations => [];
@@ -40,16 +40,16 @@ public sealed class TrianglePipeline : IPipeline
     PipelineLayout pipelineLayout;
     Buffer vertexBuffer;
     Allocation vertexAlloc;
-    Framebuffer[] framebuffers = [];
+    Framebuffer framebuffer;
+    Extent2D extent;
 
-    public void Initialize(GpuState gpuState, RenderLab.Gpu.Assets.AssetRegistry _, RenderPass overlayRenderPass)
+    public void Initialize(GpuState gpuState, RenderLab.Gpu.Assets.AssetRegistry _)
     {
         gpu = gpuState;
 
         Console.WriteLine("RenderLab — Minimal Pipeline (Triangle)");
-        Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
 
-        renderPass = VulkanPipeline.CreateRenderPass(gpu);
+        renderPass = VulkanPipeline.CreateViewportRenderPass(gpu);
         BuildPipelines();
 
         ReadOnlySpan<Vertex> vertices =
@@ -86,31 +86,34 @@ public sealed class TrianglePipeline : IPipeline
         BuildPipelines();
     }
 
-    public void RecreateTransient(GpuState _)
+    public unsafe void RecreateTransient(GpuState _, RenderTarget target)
     {
-        if (framebuffers.Length > 0)
-            VulkanPipeline.DestroyFramebuffers(gpu, framebuffers);
-        framebuffers = VulkanPipeline.CreateFramebuffers(gpu, renderPass);
+        if (framebuffer.Handle != 0)
+            gpu.Vk.DestroyFramebuffer(gpu.Device, framebuffer, null);
+
+        extent = target.Extent;
+        framebuffer = VulkanPipeline.CreateOffscreenFramebuffer(
+            gpu, renderPass, target.View, extent.Width, extent.Height);
     }
 
-    public unsafe void RecordFrame(GpuState gpuState, CommandBuffer cmd, Scene? _, UiModel __, double ___, uint imageIndex)
+    public unsafe void RecordFrame(GpuState gpuState, CommandBuffer cmd, Scene? _, UiModel __, double ___, RenderTarget target)
     {
         var clearColor = new ClearValue(new ClearColorValue(0.1f, 0.1f, 0.1f, 1.0f));
         var begin = new RenderPassBeginInfo
         {
             SType = StructureType.RenderPassBeginInfo,
             RenderPass = renderPass,
-            Framebuffer = framebuffers[imageIndex],
-            RenderArea = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent),
+            Framebuffer = framebuffer,
+            RenderArea = new Rect2D(new Offset2D(0, 0), extent),
             ClearValueCount = 1,
             PClearValues = &clearColor,
         };
         gpu.Vk.CmdBeginRenderPass(cmd, &begin, SubpassContents.Inline);
         gpu.Vk.CmdBindPipeline(cmd, PipelineBindPoint.Graphics, pipeline);
 
-        var viewport = new Viewport(0, 0, gpu.SwapchainExtent.Width, gpu.SwapchainExtent.Height, 0, 1);
+        var viewport = new Viewport(0, 0, extent.Width, extent.Height, 0, 1);
         gpu.Vk.CmdSetViewport(cmd, 0, 1, &viewport);
-        var scissor = new Rect2D(new Offset2D(0, 0), gpu.SwapchainExtent);
+        var scissor = new Rect2D(new Offset2D(0, 0), extent);
         gpu.Vk.CmdSetScissor(cmd, 0, 1, &scissor);
 
         var vb = vertexBuffer;
@@ -123,8 +126,8 @@ public sealed class TrianglePipeline : IPipeline
     public unsafe void Dispose()
     {
         gpu.Vk.DeviceWaitIdle(gpu.Device);
-        if (framebuffers.Length > 0)
-            VulkanPipeline.DestroyFramebuffers(gpu, framebuffers);
+        if (framebuffer.Handle != 0)
+            gpu.Vk.DestroyFramebuffer(gpu.Device, framebuffer, null);
         gpu.Vk.DestroyPipeline(gpu.Device, pipeline, null);
         gpu.Vk.DestroyPipelineLayout(gpu.Device, pipelineLayout, null);
         gpu.Vk.DestroyRenderPass(gpu.Device, renderPass, null);

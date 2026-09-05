@@ -52,7 +52,7 @@ public sealed class GBufferPipeline : IPipeline
 
     // Render passes
     RenderPass gbufferRenderPass;
-    RenderPass swapchainRenderPass;
+    RenderPass viewportRenderPass;
 
     // Pipelines
     Pipeline gbufferPipeline;
@@ -86,12 +86,13 @@ public sealed class GBufferPipeline : IPipeline
     Allocation gbufferPosAlloc, gbufferNormAlloc, gbufferAlbAlloc, depthAlloc;
     ImageView gbufferPosView, gbufferNormView, gbufferAlbView, depthView;
     Framebuffer gbufferFramebuffer;
-    Framebuffer[] swapchainFramebuffers = [];
+    Framebuffer viewportFramebuffer;
+    Extent2D viewportExtent;
     DescriptorPool debugVizDescPool;
     DescriptorSet[] debugVizPositionSets = [], debugVizNormalSets = [];
     DescriptorSet[] debugVizAlbedoSets = [], debugVizDepthSets = [];
 
-    public void Initialize(GpuState gpuState, AssetRegistry assets, RenderPass overlayRenderPass)
+    public void Initialize(GpuState gpuState, AssetRegistry assets)
     {
         gpu = gpuState;
 
@@ -104,8 +105,8 @@ public sealed class GBufferPipeline : IPipeline
         (vertexBuffer, vertexAlloc) = VulkanBuffer.Create<Vertex3D>(gpu, BufferUsageFlags.VertexBufferBit, mesh.Vertices);
         (indexBuffer, indexAlloc)   = VulkanBuffer.Create<uint>(gpu, BufferUsageFlags.IndexBufferBit, mesh.Indices);
 
-        gbufferRenderPass   = VulkanPipeline.CreateGBufferRenderPass(gpu);
-        swapchainRenderPass = VulkanPipeline.CreateRenderPass(gpu);
+        gbufferRenderPass  = VulkanPipeline.CreateGBufferRenderPass(gpu);
+        viewportRenderPass = VulkanPipeline.CreateViewportRenderPass(gpu);
 
         singleDsLayout   = VulkanDescriptors.CreateSamplerLayout(gpu);
         materialDsLayout = VulkanDescriptors.CreateSamplerLayout(gpu);
@@ -118,7 +119,6 @@ public sealed class GBufferPipeline : IPipeline
         sampler = VulkanImage.CreateSampler(gpu);
         CreateCameraBuffers();
 
-        Console.WriteLine($"  Swapchain: {gpu.SwapchainExtent.Width}x{gpu.SwapchainExtent.Height}");
         Console.WriteLine("  No render graph — manual barriers between passes");
     }
 
@@ -140,7 +140,7 @@ public sealed class GBufferPipeline : IPipeline
             out gbufferPipelineLayout);
 
         debugVizPipeline = VulkanPipeline.CreateFullscreenPipeline(
-            gpu, swapchainRenderPass, singleDsLayout, fsVert, debugFrag,
+            gpu, viewportRenderPass, singleDsLayout, fsVert, debugFrag,
             (uint)Marshal.SizeOf<DebugVizPushConstants>(), ShaderStageFlags.FragmentBit,
             out debugVizPipelineLayout);
 
@@ -159,11 +159,11 @@ public sealed class GBufferPipeline : IPipeline
         BuildPipelines();
     }
 
-    public void RecreateTransient(GpuState _)
+    public void RecreateTransient(GpuState _, RenderTarget target)
     {
         DestroyTransient();
-        var extent = gpu.SwapchainExtent;
-        uint w = extent.Width, h = extent.Height;
+        viewportExtent = target.Extent;
+        uint w = viewportExtent.Width, h = viewportExtent.Height;
 
         (gbufferPosImage,  gbufferPosAlloc,  gbufferPosView)  = VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferPositionFormat, w, h);
         (gbufferNormImage, gbufferNormAlloc, gbufferNormView) = VulkanImage.CreateOffscreen(gpu, VulkanPipeline.GBufferNormalFormat, w, h);
@@ -172,7 +172,8 @@ public sealed class GBufferPipeline : IPipeline
 
         gbufferFramebuffer = VulkanPipeline.CreateGBufferFramebuffer(
             gpu, gbufferRenderPass, gbufferPosView, gbufferNormView, gbufferAlbView, depthView, w, h);
-        swapchainFramebuffers = VulkanPipeline.CreateFramebuffers(gpu, swapchainRenderPass);
+        viewportFramebuffer = VulkanPipeline.CreateOffscreenFramebuffer(
+            gpu, viewportRenderPass, target.View, w, h);
 
         uint frames = (uint)GpuState.MaxFramesInFlight;
         debugVizDescPool      = VulkanDescriptors.CreatePool(gpu, frames * 4, 1);
@@ -183,7 +184,7 @@ public sealed class GBufferPipeline : IPipeline
             ImageLayout.DepthStencilReadOnlyOptimal);
     }
 
-    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? __, UiModel ui, double ___, uint imageIndex)
+    public void RecordFrame(GpuState _, CommandBuffer cb, Scene? __, UiModel ui, double ___, RenderTarget target)
     {
         // The editor drives this pipeline now. Which attachment reaches the screen is the
         // Visualization panel's, and the camera is the Inspector's - both used to be private
@@ -191,12 +192,16 @@ public sealed class GBufferPipeline : IPipeline
         // technique ended up with a UI framework among its dependencies and two controls the
         // editor could not see.
         vizMode = ui.Viz;
+
+        // The viewport's shape, not the window's. A cube rendered at the window's aspect and then
+        // shown inside a panel of a different one is a cube that is subtly the wrong shape, and
+        // nothing on screen says why.
         camera = FreeCameraController.ToCamera(ui.Camera,
-            (float)gpu.SwapchainExtent.Width / gpu.SwapchainExtent.Height);
+            (float)target.Extent.Width / target.Extent.Height);
 
         RecordGBufferPass(cb);
         InsertGBufferBarriers(cb);
-        RecordDebugVizPass(cb, imageIndex);
+        RecordDebugVizPass(cb);
     }
 
     void RecordGBufferPass(CommandBuffer cb)
@@ -206,7 +211,7 @@ public sealed class GBufferPipeline : IPipeline
             Framebuffer: gbufferFramebuffer,
             Pipeline: gbufferPipeline,
             PipelineLayout: gbufferPipelineLayout,
-            Extent: gpu.SwapchainExtent);
+            Extent: viewportExtent);
 
         UploadCameraForCurrentFrame(camera);
         var pc = GBufferPass.BuildPushConstants(Transform.Default, MaterialParams.Default);
@@ -306,7 +311,7 @@ public sealed class GBufferPipeline : IPipeline
         };
     }
 
-    unsafe void RecordDebugVizPass(CommandBuffer cb, uint imageIndex)
+    unsafe void RecordDebugVizPass(CommandBuffer cb)
     {
         var sourceSet = vizMode switch
         {
@@ -317,12 +322,12 @@ public sealed class GBufferPipeline : IPipeline
             _ => debugVizPositionSets[gpu.CurrentFrame],
         };
         var resources = new DebugVizPassResources(
-            RenderPass: swapchainRenderPass,
-            Framebuffer: swapchainFramebuffers[imageIndex],
+            RenderPass: viewportRenderPass,
+            Framebuffer: viewportFramebuffer,
             Pipeline: debugVizPipeline,
             PipelineLayout: debugVizPipelineLayout,
             SourceSet: sourceSet,
-            Extent: gpu.SwapchainExtent);
+            Extent: viewportExtent);
         var pc = DebugVizPass.BuildPushConstants(vizMode == VisualizationMode.Depth, camera);
         DebugVizPass.Record(gpu.Vk, cb, resources, pc);
 
@@ -351,8 +356,8 @@ public sealed class GBufferPipeline : IPipeline
 
     unsafe void DestroyTransient()
     {
-        if (swapchainFramebuffers.Length > 0)
-            VulkanPipeline.DestroyFramebuffers(gpu, swapchainFramebuffers);
+        if (viewportFramebuffer.Handle != 0)
+            gpu.Vk.DestroyFramebuffer(gpu.Device, viewportFramebuffer, null);
         if (debugVizDescPool.Handle != 0)
             gpu.Vk.DestroyDescriptorPool(gpu.Device, debugVizDescPool, null);
         if (gbufferFramebuffer.Handle != 0)
@@ -365,7 +370,7 @@ public sealed class GBufferPipeline : IPipeline
             VulkanImage.DestroyOffscreen(gpu, gbufferNormImage, gbufferNormAlloc, gbufferNormView);
         if (gbufferPosView.Handle != 0)
             VulkanImage.DestroyOffscreen(gpu, gbufferPosImage, gbufferPosAlloc, gbufferPosView);
-        swapchainFramebuffers = [];
+        viewportFramebuffer = default;
         debugVizDescPool = default;
         gbufferFramebuffer = default;
         depthView = default;
@@ -385,7 +390,7 @@ public sealed class GBufferPipeline : IPipeline
         gpu.Vk.DestroyRenderPass(gpu.Device, gbufferRenderPass, null);
         gpu.Vk.DestroyPipeline(gpu.Device, debugVizPipeline, null);
         gpu.Vk.DestroyPipelineLayout(gpu.Device, debugVizPipelineLayout, null);
-        gpu.Vk.DestroyRenderPass(gpu.Device, swapchainRenderPass, null);
+        gpu.Vk.DestroyRenderPass(gpu.Device, viewportRenderPass, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, singleDsLayout, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, materialDsLayout, null);
         gpu.Vk.DestroyDescriptorSetLayout(gpu.Device, cameraDsLayout, null);

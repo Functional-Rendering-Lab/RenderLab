@@ -42,6 +42,14 @@ public sealed class PtahUi : IDisposable
     /// <summary>What the last recorded frame came to. Zero until one has been recorded.</summary>
     public UiCost Cost { get; private set; }
 
+    /// <summary>
+    /// The picture the viewport leaf draws: the image the renderer rendered the scene into. None
+    /// until <see cref="ShowScene"/> has been called, and the same id from then on - the id is the
+    /// interface's handle on the picture, and the picture behind it is replaced whenever the
+    /// viewport changes size.
+    /// </summary>
+    public ImageId Scene { get; private set; } = ImageId.None;
+
     private PtahUi(GpuState gpu, RenderPass overlayPass, FontAtlas font, VulkanDrawTarget target,
         IInputContext input)
     {
@@ -60,8 +68,8 @@ public sealed class PtahUi : IDisposable
 
     /// <summary>
     /// Brings up the shell against the application's own device and overlay pass.
-    /// <paramref name="overlayPass"/> is the pass the interface is recorded into, and its
-    /// single subpass is composited over an already-resolved swapchain image - which is why the
+    /// <paramref name="overlayPass"/> is the pass the interface is recorded into, and the only
+    /// one that writes the swapchain: it has a single unresolved subpass, which is why the
     /// backend's subpass index and sample count are left at their defaults here.
     /// <para>
     /// Its color space is not left at a default, and cannot be. This swapchain is
@@ -104,6 +112,28 @@ public sealed class PtahUi : IDisposable
         FramesInFlight: GpuState.MaxFramesInFlight);
 
     /// <summary>
+    /// Points the viewport's picture at <paramref name="view"/>, registering it the first time.
+    /// <para>
+    /// It is one id for the life of the editor because the display list refers to the picture by
+    /// id and nothing else: a viewport resize throws away the image and makes another, and the
+    /// interface is not supposed to notice. The caller has to have idled the device first - this
+    /// rewrites a descriptor set a frame in flight may still be reading.
+    /// </para>
+    /// </summary>
+    public Result<Unit, PtahStartupError> ShowScene(ImageView view, Sampler sampler)
+    {
+        if (Scene.IsNone)
+            return _target.RegisterImage(view, sampler).Map(id =>
+            {
+                Scene = id;
+                return Unit.Value;
+            });
+
+        _target.UpdateImage(Scene, view, sampler);
+        return Result<Unit, PtahStartupError>.Ok(Unit.Value);
+    }
+
+    /// <summary>
     /// Builds one frame of interface: takes this frame's input, runs <paramref name="build"/>
     /// between the context's own begin and end, and keeps the display list for
     /// <see cref="Record"/>. What the build hands back is the view's result, folded by the shell
@@ -131,17 +161,21 @@ public sealed class PtahUi : IDisposable
     }
 
     /// <summary>
-    /// Records the frame built by <see cref="Frame"/> into <paramref name="cmd"/>, in an overlay
-    /// pass of its own over the image the pipeline left. A frame that drew nothing - every panel
-    /// hidden, or none ported yet - begins no pass and costs nothing.
+    /// Records the frame built by <see cref="Frame"/> into <paramref name="cmd"/>, in the pass
+    /// that owns the swapchain image.
+    /// <para>
+    /// The pass is begun whether or not there is anything to draw. It used to be skipped for an
+    /// empty display list, back when it loaded a frame the renderer had already drawn and skipping
+    /// it left that frame alone; it clears now, and a frame that begins no pass is a swapchain
+    /// image presented in an undefined layout with undefined contents.
+    /// </para>
     /// </summary>
-    public void Record(CommandBuffer cmd, Framebuffer framebuffer, Extent2D extent)
+    public unsafe void Record(CommandBuffer cmd, Framebuffer framebuffer, Extent2D extent)
     {
-        if (_frame.Count == 0)
-        {
-            Cost = default;
-            return;
-        }
+        // What shows where the interface does not paint. Nothing should: the shell fills the
+        // client area. It is the ground under a frame that failed to build rather than a colour
+        // the editor is meant to wear.
+        var clear = new ClearValue(new ClearColorValue(0f, 0f, 0f, 1f));
 
         var begin = new RenderPassBeginInfo
         {
@@ -149,10 +183,19 @@ public sealed class PtahUi : IDisposable
             RenderPass = _overlayPass,
             Framebuffer = framebuffer,
             RenderArea = new Rect2D(new Offset2D(0, 0), extent),
+            ClearValueCount = 1,
+            PClearValues = &clear,
         };
 
         Vk vk = _gpu.Vk;
         vk.CmdBeginRenderPass(cmd, in begin, SubpassContents.Inline);
+
+        if (_frame.Count == 0)
+        {
+            vk.CmdEndRenderPass(cmd);
+            Cost = default;
+            return;
+        }
 
         // The display list is in logical pixels and the attachment is in physical ones; the
         // backend maps between them, which is the whole of what a high-DPI frame needs.
